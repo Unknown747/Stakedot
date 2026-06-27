@@ -442,7 +442,39 @@ def human_delay(consecutive_loss: int = 0, ronde: int = 1):
     time.sleep(base)
 
 
-def jalankan_strategy_vip(user: dict):
+def rest_countdown(menit: int = 60):
+    """
+    Countdown istirahat antar sesi untuk VPS mode.
+    Menampilkan progress bar + waktu sisa secara real-time.
+    Ctrl+C kapan saja = skip istirahat dan langsung lanjut.
+    """
+    total_secs = menit * 60
+    resume_at  = datetime.fromtimestamp(
+        datetime.now().timestamp() + total_secs
+    ).strftime("%H:%M")
+
+    print()
+    print(g(CYAN,  f"  ⏸  Istirahat {menit} menit — sesi berikutnya ± pukul {resume_at}"))
+    print(g(DIM,   "     Ctrl+C untuk skip istirahat dan langsung lanjut.\n"))
+
+    bar_len = 35
+    try:
+        for sisa in range(total_secs, 0, -1):
+            elapsed  = total_secs - sisa
+            filled   = int(elapsed / total_secs * bar_len)
+            bar      = g(CYAN, "█" * filled) + g(DIM, "░" * (bar_len - filled))
+            mnt, dtk = divmod(sisa, 60)
+            print(
+                f"\r  ⏰  [{bar}]  {g(BOLD, f'{mnt:02d}:{dtk:02d}')} tersisa   ",
+                end="", flush=True
+            )
+            time.sleep(1)
+        print(f"\r  {g(GREEN, '✅')}  Istirahat selesai! Memulai sesi berikutnya...{' ' * 20}")
+    except KeyboardInterrupt:
+        print(f"\n\n  {g(YELLOW, '⏩')}  Skip istirahat — langsung lanjut sesi baru.\n")
+
+
+def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     """
     Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 200.
 
@@ -486,13 +518,14 @@ def jalankan_strategy_vip(user: dict):
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
     # ── State tracker ────────────────────────────────────────────────────────
-    total_volume    = Decimal("0")  # Akumulasi total uang yang ditaruhkan
-    total_loss      = Decimal("0")  # Total saldo yang berkurang dari awal
-    wins            = 0
-    losses          = 0
-    consecutive_err = 0
-    consecutive_loss = 0  # Untuk human_delay — kalah beruntun = jeda lebih panjang
-    ronde           = 0
+    total_volume     = Decimal("0")  # Akumulasi total uang yang ditaruhkan
+    total_loss       = Decimal("0")  # Total saldo yang berkurang dari awal
+    wins             = 0
+    losses           = 0
+    consecutive_err  = 0
+    consecutive_loss = 0   # Untuk human_delay — kalah beruntun = jeda lebih panjang
+    ronde            = 0
+    stopped_by_user  = False
 
     try:
         while True:
@@ -606,6 +639,7 @@ def jalankan_strategy_vip(user: dict):
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
+        stopped_by_user = True
 
     # ── Ringkasan akhir sesi VIP ──────────────────────────────────────────────
     total    = wins + losses
@@ -665,7 +699,11 @@ def jalankan_strategy_vip(user: dict):
         })
         print(g(DIM, f"\n  📄 Log sesi disimpan ke {CSV_LOG}"))
 
-    # ── Tanya apakah mau mulai sesi baru ─────────────────────────────────────
+    # ── VPS mode: auto-continue, istirahat dikelola oleh caller ─────────────
+    if vps_mode:
+        return not stopped_by_user  # False jika user Ctrl+C = berhenti total
+
+    # ── Tanya apakah mau mulai sesi baru (mode normal) ───────────────────────
     print()
     try:
         jawab = input(g(YELLOW, "  🔁 Mulai sesi baru? (y/n): ")).strip().lower()
@@ -737,29 +775,76 @@ def main():
     print_section("PILIH MODE")
     print(f"  {g(BOLD, '1.')} Dice Biasa       — atur sendiri currency, bet, target, dll")
     print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 200/roll, stop-loss Rp 30rb")
+    print(f"  {g(BOLD, '3.')} {g(CYAN, 'VPS Auto-Run')}    — seperti mode 2, tapi jalan terus 24/7 tanpa input")
+    print(g(DIM, "             Mode 3 cocok untuk VPS/server — setiap sesi selesai"))
+    print(g(DIM, "             otomatis istirahat lalu mulai sesi baru tanpa perlu diawasi."))
 
     def val_mode_main(s):
-        return s if s in ("1", "2") else None
+        return s if s in ("1", "2", "3") else None
 
-    mode_main = ask("\nPilih mode (1/2): ", validator=val_mode_main)
+    mode_main = ask("\nPilih mode (1/2/3): ", validator=val_mode_main)
 
-    # ── Strategy VIP: loop auto-restart ──────────────────────────────────────
+    # ── Strategy VIP: loop manual (tanya y/n tiap sesi) ──────────────────────
     if mode_main == "2":
         sesi_ke = 1
         while True:
             print(g(CYAN, f"\n  ═══ SESI #{sesi_ke} ═══"))
 
-            # Refresh data user (saldo & VIP progress terbaru) setiap sesi baru
             try:
                 user = gql(USER_QUERY)["user"]
             except Exception:
-                pass  # Gunakan data lama jika gagal refresh
+                pass
 
             lanjut = jalankan_strategy_vip(user=user)
             if not lanjut:
                 print(g(YELLOW, "\n  Sampai jumpa! 👋"))
                 break
             sesi_ke += 1
+        return
+
+    # ── VPS Auto-Run: jalan 24/7, istirahat otomatis antar sesi ──────────────
+    if mode_main == "3":
+        print_section("VPS AUTO-RUN — KONFIGURASI")
+        print(g(DIM, "  Setiap sesi selesai (target 2 juta atau stop-loss), script akan"))
+        print(g(DIM, "  istirahat otomatis lalu mulai sesi baru. Ctrl+C saat istirahat = skip.\n"))
+        print(g(DIM, "  Ctrl+C saat sedang betting = sesi berhenti & keluar program.\n"))
+
+        def val_menit(s):
+            try:
+                v = int(s)
+                return v if 1 <= v <= 480 else None
+            except ValueError:
+                return None
+
+        rest_menit = ask(
+            "Durasi istirahat antar sesi dalam menit (default 60): ",
+            validator=val_menit,
+            default="60",
+        )
+        rest_menit = int(rest_menit)
+
+        print()
+        print(g(GREEN, f"  ✅ VPS Auto-Run aktif — istirahat {rest_menit} menit antar sesi"))
+        print(g(DIM,   "  Script berjalan sampai Ctrl+C saat betting atau terjadi auth error.\n"))
+
+        sesi_ke = 1
+        while True:
+            waktu_mulai = datetime.now().strftime("%d/%m %H:%M")
+            print(g(CYAN, f"\n  ╔═══ SESI #{sesi_ke}  ·  {waktu_mulai} ═══╗"))
+
+            try:
+                user = gql(USER_QUERY)["user"]
+            except Exception:
+                pass
+
+            lanjut = jalankan_strategy_vip(user=user, vps_mode=True)
+            if not lanjut:
+                print(g(YELLOW, "\n  VPS Auto-Run dihentikan oleh pengguna. Sampai jumpa! 👋"))
+                break
+
+            sesi_ke += 1
+            rest_countdown(rest_menit)
+
         return
 
     # ── Mode Dice Biasa (lanjut konfigurasi manual) ───────────────────────────
