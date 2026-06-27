@@ -96,14 +96,20 @@ mutation DiceRoll(
     amount
     payout
     currency
-    result {
-      result
-      target
-      condition
+    state {
+      ... on CasinoGameDice {
+        result
+        target
+        condition
+      }
     }
-    balance {
-      available
-      currency
+    user {
+      balances {
+        available {
+          amount
+          currency
+        }
+      }
     }
   }
 }
@@ -447,7 +453,7 @@ def jalankan_strategy_vip(user: dict):
             ronde += 1
 
             # ── Tentukan menang/kalah dari data game result (bukan payout) ───
-            won    = determine_win(roll["result"])
+            won    = determine_win(roll["state"])
             payout = to_dec(roll["payout"])
             amount = to_dec(roll["amount"])
             profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
@@ -481,9 +487,13 @@ def jalankan_strategy_vip(user: dict):
                            if total_loss >= max_loss_limit
                            else g(DIM, f"{pct_loss:.1f}% dari limit"))
 
-            rolled_num  = float(roll["result"]["result"])
-            balance_raw = roll.get("balance")
-            balance_str = fmt(balance_raw["available"], currency) if balance_raw else "N/A"
+            rolled_num  = float(roll["state"]["result"])
+            # Ambil saldo currency aktif dari user.balances
+            user_bals   = roll.get("user", {}).get("balances", [])
+            bal_amount  = next(
+                (b["available"]["amount"] for b in user_bals
+                 if b["available"]["currency"] == currency), None)
+            balance_str = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
 
             # ── Print log CLI ─────────────────────────────────────────────────
             print(
@@ -772,7 +782,7 @@ def main():
             stats["total"] = ronde
 
             # Tentukan menang/kalah dari data game result (bukan dari payout float)
-            won = determine_win(roll["result"])
+            won = determine_win(roll["state"])
 
             # Hitung profit dengan Decimal untuk presisi tinggi
             payout     = to_dec(roll["payout"])
@@ -781,9 +791,13 @@ def main():
 
             stats["profit"] += profit
 
-            rolled_num  = float(roll["result"]["result"])
-            balance_raw = roll.get("balance")
-            balance_str = fmt(balance_raw["available"], currency) if balance_raw else "N/A"
+            rolled_num = float(roll["state"]["result"])
+            # Ambil saldo currency aktif dari user.balances
+            user_bals  = roll.get("user", {}).get("balances", [])
+            bal_amount = next(
+                (b["available"]["amount"] for b in user_bals
+                 if b["available"]["currency"] == currency), None)
+            balance_str = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
 
             if won:
                 stats["wins"] += 1
