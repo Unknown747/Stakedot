@@ -142,12 +142,20 @@ def gql(query, variables=None):
         raise Exception("Response bukan JSON yang valid dari Stake.com.")
 
     if "errors" in data:
-        msgs = [e.get("message", str(e)) for e in data["errors"]]
-        # Deteksi error autentikasi agar loop bisa berhenti
-        auth_keywords = ("unauthorized", "unauthenticated", "invalid token", "access denied")
-        full_msg = " ".join(msgs).lower()
-        if any(k in full_msg for k in auth_keywords):
-            raise PermissionError(f"Auth error: {', '.join(msgs)}")
+        msgs      = [e.get("message", str(e)) for e in data["errors"]]
+        err_types = [e.get("errorType", "") for e in data["errors"]]
+        full_msg  = " ".join(msgs).lower()
+        # Deteksi session expired / auth error → PermissionError agar loop berhenti
+        auth_keywords  = ("unauthorized", "unauthenticated", "invalid token",
+                          "access denied", "session has expired", "disabledsession")
+        auth_err_types = ("disabledSession", "forbidden", "unauthorized")
+        if (any(k in full_msg for k in auth_keywords)
+                or any(t in auth_err_types for t in err_types)):
+            raise PermissionError(
+                "API Key expired atau tidak valid. "
+                "Generate API Key baru di Stake.com → Settings → API, "
+                "lalu update Secret STAKE_API_KEY di Replit."
+            )
         raise Exception(", ".join(msgs))
 
     if "data" not in data:
