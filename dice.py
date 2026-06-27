@@ -5,6 +5,8 @@ Mainkan dice Stake.com langsung dari terminal menggunakan API resmi.
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import sys
 import uuid
 import time
