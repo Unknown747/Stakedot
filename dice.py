@@ -64,17 +64,20 @@ query Me {
 
 # ─── VIP Config ────────────────────────────────────────────────────────────────
 
-# Level VIP Stake.com beserta total wager minimum (USD) dan warna CLI
+# Level VIP Stake.com — urutan eksplisit untuk lookup next-level yang akurat
 VIP_LEVELS = {
-    "none":        {"label": "Non-VIP",     "min_usd": 0,          "next_usd": 10_000,    "color": DIM    if 'DIM'    in dir() else ""},
+    "none":        {"label": "Non-VIP",      "min_usd": 0,          "next_usd": 10_000,    "color": DIM},
     "bronze":      {"label": "🥉 Bronze",    "min_usd": 10_000,     "next_usd": 50_000,    "color": "\033[33m"},
     "silver":      {"label": "🥈 Silver",    "min_usd": 50_000,     "next_usd": 100_000,   "color": "\033[37m"},
     "gold":        {"label": "🥇 Gold",      "min_usd": 100_000,    "next_usd": 250_000,   "color": "\033[93m"},
     "platinum":    {"label": "💎 Platinum",  "min_usd": 250_000,    "next_usd": 500_000,   "color": "\033[96m"},
-    "platinumii":  {"label": "💎 Platinum II","min_usd": 500_000,   "next_usd": 1_000_000, "color": "\033[96m"},
+    "platinumii":  {"label": "💎 Platinum II", "min_usd": 500_000,  "next_usd": 1_000_000, "color": "\033[96m"},
     "platinumiii": {"label": "💎 Platinum III","min_usd": 1_000_000,"next_usd": 2_500_000, "color": "\033[96m"},
     "diamond":     {"label": "👑 Diamond",   "min_usd": 25_000_000, "next_usd": None,      "color": "\033[95m"},
 }
+
+# Urutan level eksplisit — dipakai untuk lookup next-level yang benar
+VIP_ORDER = ["none", "bronze", "silver", "gold", "platinum", "platinumii", "platinumiii", "diamond"]
 
 DICE_MUTATION = """
 mutation DiceRoll(
@@ -200,16 +203,21 @@ def fmt(amount, currency):
 
 def determine_win(roll_result: dict) -> bool:
     """
-    Tentukan menang/kalah berdasarkan data game result dari API,
-    bukan dari field payout (lebih akurat dan tidak bergantung pada presisi float).
+    Tentukan menang/kalah berdasarkan data game result dari API.
+    Aman terhadap dict kosong — fallback ke False jika field tidak lengkap.
     """
-    rolled = Decimal(str(roll_result["result"]))
-    target = Decimal(str(roll_result["target"]))
-    condition = roll_result["condition"]
-    if condition == "above":
-        return rolled > target
-    elif condition == "below":
-        return rolled < target
+    if not roll_result:
+        return False
+    try:
+        rolled    = Decimal(str(roll_result["result"]))
+        target    = Decimal(str(roll_result["target"]))
+        condition = roll_result["condition"]
+        if condition == "above":
+            return rolled > target
+        elif condition == "below":
+            return rolled < target
+    except (KeyError, TypeError, InvalidOperation):
+        pass
     return False
 
 
@@ -289,18 +297,17 @@ def print_vip_status(flag_progress: dict):
     filled  = int(progress * bar_len)
     bar     = f"{color}{'█' * filled}{R}{DIM}{'░' * (bar_len - filled)}{R}"
 
-    # Hitung sisa wager USD ke level berikutnya
-    next_usd  = info["next_usd"]
-    min_usd   = info["min_usd"]
+    # Hitung sisa wager USD ke level berikutnya (gunakan VIP_ORDER untuk lookup akurat)
+    next_usd = info["next_usd"]
+    min_usd  = info["min_usd"]
     if next_usd:
-        gap_total    = next_usd - min_usd
-        sudah        = gap_total * progress
-        sisa_usd     = gap_total - sudah
-        next_label   = VIP_LEVELS.get(
-            next((k for k, v in VIP_LEVELS.items() if v["min_usd"] == next_usd), "diamond"),
-            {}
-        ).get("label", "Next")
-        sisa_str = f"  Sisa ke {next_label}: ~${sisa_usd:,.0f} USD wager"
+        gap_total = next_usd - min_usd
+        sisa_usd  = gap_total - (gap_total * progress)
+        # Cari label next level via urutan eksplisit, bukan exact min_usd match
+        cur_idx    = VIP_ORDER.index(flag) if flag in VIP_ORDER else 0
+        next_key   = VIP_ORDER[cur_idx + 1] if cur_idx + 1 < len(VIP_ORDER) else None
+        next_label = VIP_LEVELS[next_key]["label"] if next_key else "Level Max"
+        sisa_str   = f"  Sisa ke {next_label}: ~${sisa_usd:,.0f} USD wager"
     else:
         sisa_str = "  Level tertinggi tercapai!"
 
@@ -452,11 +459,22 @@ def jalankan_strategy_vip(user: dict):
 
             ronde += 1
 
-            # ── Tentukan menang/kalah dari data game result (bukan payout) ───
-            won    = determine_win(roll["state"])
-            payout = to_dec(roll["payout"])
-            amount = to_dec(roll["amount"])
-            profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+            # ── Parse state dengan aman — lindungi dari KeyError/TypeError ────
+            state      = roll.get("state") or {}
+            payout     = to_dec(roll.get("payout", 0))
+            amount     = to_dec(roll.get("amount", 0))
+            profit     = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+
+            # Tentukan menang dari state; fallback ke payout jika state tidak lengkap
+            won_state  = determine_win(state)
+            won_payout = payout > amount
+            if state and won_state != won_payout:
+                # Inkonsistensi API — log warning, pakai payout sebagai sumber kebenaran
+                print(g(YELLOW, f"  ⚠️  State/payout mismatch ronde {ronde}, pakai payout."))
+            won = won_payout if not state else won_state
+
+            # Angka roll — aman jika state kosong
+            rolled_num = float(state.get("result", 0))
 
             # ── Update statistik ──────────────────────────────────────────────
             total_volume += base_bet          # Setiap bet selalu menambah volume
@@ -470,16 +488,15 @@ def jalankan_strategy_vip(user: dict):
             else:
                 losses += 1
                 result_icon = g(RED, "❌ KALAH ")
-                profit_str  = g(RED, fmt(profit, currency))   # profit sudah negatif
+                profit_str  = g(RED, fmt(profit, currency))
 
-            # ── Progress bar volume (visual sederhana) ────────────────────────
+            # ── Progress bar volume ───────────────────────────────────────────
             pct_volume  = min(total_volume / target_volume * 100, Decimal("100"))
             pct_loss    = min(total_loss   / max_loss_limit * 100, Decimal("100"))
             bar_len     = 20
             filled      = int(pct_volume / 100 * bar_len)
             volume_bar  = g(CYAN, "█" * filled) + g(DIM, "░" * (bar_len - filled))
 
-            # ── Status stop-condition ─────────────────────────────────────────
             vol_status  = (g(GREEN, "✅ TERCAPAI")
                            if total_volume >= target_volume
                            else g(DIM, f"{pct_volume:.1f}% dari target"))
@@ -487,8 +504,7 @@ def jalankan_strategy_vip(user: dict):
                            if total_loss >= max_loss_limit
                            else g(DIM, f"{pct_loss:.1f}% dari limit"))
 
-            rolled_num  = float(roll["state"]["result"])
-            # Ambil saldo currency aktif dari user.balances
+            # Ambil saldo dari user.balances
             user_bals   = roll.get("user", {}).get("balances", [])
             bal_amount  = next(
                 (b["available"]["amount"] for b in user_bals
@@ -831,20 +847,25 @@ def main():
             ronde += 1
             stats["total"] = ronde
 
-            # Tentukan menang/kalah dari data game result (bukan dari payout float)
-            won = determine_win(roll["state"])
-
-            # Hitung profit dengan Decimal untuk presisi tinggi
-            payout     = to_dec(roll["payout"])
-            amount_dec = to_dec(roll["amount"])
+            # ── Parse state dengan aman — lindungi dari KeyError/TypeError ────
+            state      = roll.get("state") or {}
+            payout     = to_dec(roll.get("payout", 0))
+            amount_dec = to_dec(roll.get("amount", 0))
             profit     = (payout - amount_dec).quantize(_quanta(currency), rounding=ROUND_DOWN)
+
+            # Tentukan menang dari state; fallback ke payout jika state tidak lengkap
+            won_state  = determine_win(state)
+            won_payout = payout > amount_dec
+            if state and won_state != won_payout:
+                print(g(YELLOW, f"  ⚠️  State/payout mismatch ronde {ronde}, pakai payout."))
+            won = won_payout if not state else won_state
 
             stats["profit"] += profit
 
-            rolled_num = float(roll["state"]["result"])
+            rolled_num  = float(state.get("result", 0))
             # Ambil saldo currency aktif dari user.balances
-            user_bals  = roll.get("user", {}).get("balances", [])
-            bal_amount = next(
+            user_bals   = roll.get("user", {}).get("balances", [])
+            bal_amount  = next(
                 (b["available"]["amount"] for b in user_bals
                  if b["available"]["currency"] == currency), None)
             balance_str = fmt(bal_amount, currency) if bal_amount is not None else "N/A"

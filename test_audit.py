@@ -5,8 +5,7 @@ Menguji semua komponen tanpa perlu main full session.
 """
 
 import os, sys, uuid, time, csv, random
-import requests
-from decimal import Decimal, ROUND_DOWN, InvalidOperation
+from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 
 # ── Import dari dice.py ───────────────────────────────────────────────────────
@@ -15,7 +14,7 @@ from dice import (
     gql, USER_QUERY, DICE_MUTATION,
     determine_win, to_dec, fmt, _quanta,
     print_vip_status, simpan_log_csv, CSV_LOG,
-    g, BOLD, GREEN, RED, CYAN, YELLOW, BLUE, DIM, R,
+    g, BOLD, GREEN, RED, CYAN, YELLOW, BLUE, DIM,
 )
 
 SEP = g(BLUE, "─" * 55)
@@ -40,8 +39,9 @@ except Exception as e:
 
 # ── TEST 2: VIP Status ────────────────────────────────────────────────────────
 header("TEST 2 — VIP Status Display")
-fp = user.get("flagProgress") or {"flag": "none", "progress": 0}
-info(f"Raw API → flag={fp.get('flag')}, progress={fp.get('progress'):.4f}")
+fp       = user.get("flagProgress") or {"flag": "none", "progress": 0}
+progress = float(fp.get("progress") or 0)   # aman dari None
+info(f"Raw API → flag={fp.get('flag')}, progress={progress:.4f}")
 print()
 print_vip_status(fp)
 ok("VIP status tampil tanpa error")
@@ -75,84 +75,105 @@ wins = losses = 0
 for i in range(1, 6):
     ident = str(uuid.uuid4())
     try:
-        result = gql(DICE_MUTATION, {
+        result    = gql(DICE_MUTATION, {
             "amount":     float(base_bet),
             "target":     target_num,
             "condition":  condition,
             "currency":   currency,
             "identifier": ident,
         })
-        roll   = result["diceRoll"]
-        won    = determine_win(roll["state"])
-        payout = to_dec(roll["payout"])
-        amount = to_dec(roll["amount"])
-        profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+        roll      = result["diceRoll"]
+
+        # ── Parse aman seperti di dice.py production ──────────────────────────
+        state      = roll.get("state") or {}
+        payout     = to_dec(roll.get("payout", 0))
+        amount     = to_dec(roll.get("amount", 0))
+        profit     = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+
+        won_state  = determine_win(state)
+        won_payout = payout > amount
+        won        = won_payout if not state else won_state
 
         total_volume += base_bet
         total_loss   -= profit
 
-        rolled   = float(roll["state"]["result"])
+        rolled    = float(state.get("result", 0))
         user_bals = roll.get("user", {}).get("balances", [])
-        bal      = next(
+        bal       = next(
             (b["available"]["amount"] for b in user_bals
-             if b["available"]["currency"] == currency), "?"
+             if b["available"]["currency"] == currency), None
         )
 
         icon = g(GREEN, "WIN ✅") if won else g(RED, "LOSS ❌")
+        pstr = g(GREEN, f"+{fmt(profit, currency)}") if won else g(RED, fmt(profit, currency))
         if won:
             wins += 1
-            pstr = g(GREEN, f"+{fmt(profit, currency)}")
         else:
             losses += 1
-            pstr = g(RED, fmt(profit, currency))
 
+        bal_str = fmt(bal, currency) if bal is not None else "N/A"
         print(f"  Roll #{i}: {g(BOLD, f'{rolled:.2f}'):<8} {icon}  {pstr:<22} "
-              f"Saldo: {g(CYAN, fmt(bal, currency))}")
+              f"Saldo: {g(CYAN, bal_str)}")
 
-        time.sleep(random.uniform(0.6, 1.3))   # Jeda acak seperti production
+        time.sleep(random.uniform(0.6, 1.3))
 
     except Exception as e:
         fail(f"Bet #{i} error: {e}")
 
-total = wins + losses
+total    = wins + losses
 win_rate = (wins / total * 100) if total > 0 else 0
 print()
 ok(f"5 bet selesai — W/L: {wins}/{losses} ({win_rate:.0f}%) | "
    f"Volume: {fmt(total_volume, currency)} | "
    f"Loss: {fmt(total_loss, currency)}")
 
-# ── TEST 5: Stop Condition Logic ──────────────────────────────────────────────
-header("TEST 5 — Stop Condition Logic")
+# ── TEST 5: determine_win safety ──────────────────────────────────────────────
+header("TEST 5 — determine_win Safety & Stop Condition Logic")
 
-# Simulasi: volume sudah mendekati target
-sim_volume     = Decimal("1999800")   # Tinggal 1 bet lagi ke 2 juta
+# Uji determine_win dengan dict kosong / None — tidak boleh crash
+assert determine_win({})   == False, "dict kosong harus return False"
+assert determine_win(None) == False, "None harus return False"  # type: ignore
+assert determine_win({"result": 50, "target": 98, "condition": "below"}) == True
+assert determine_win({"result": 99, "target": 98, "condition": "below"}) == False
+assert determine_win({"result": 99, "target": 98, "condition": "above"}) == True
+ok("determine_win aman untuk semua edge case")
+
+# Simulasi stop conditions
+sim_volume     = Decimal("1999800") + Decimal("200")  # tepat 2.000.000
 sim_target_vol = Decimal("2000000")
-sim_loss       = Decimal("25000")     # Loss masih di bawah limit
+sim_loss_bad   = Decimal("31000")
 sim_loss_limit = Decimal("30000")
+sim_vol_ok     = Decimal("500000")
+sim_loss_ok    = Decimal("5000")
 
-sim_volume += base_bet   # Tambah 1 bet terakhir → 2.000.000
+assert sim_volume    >= sim_target_vol,  "Target volume harus terdeteksi"
+assert sim_loss_bad  >= sim_loss_limit,  "Stop-loss harus terdeteksi"
+assert sim_vol_ok    <  sim_target_vol,  "Volume aman tidak boleh trigger stop"
+assert sim_loss_ok   <  sim_loss_limit,  "Loss aman tidak boleh trigger stop"
 
-if sim_volume >= sim_target_vol:
-    ok(f"Stop TARGET VOLUME: {fmt(sim_volume, 'idr')} ≥ {fmt(sim_target_vol, 'idr')} → BERHENTI ✅")
-else:
-    fail("Target volume tidak terdeteksi")
+ok("Stop TARGET VOLUME terdeteksi ✅")
+ok("Stop LOSS LIMIT terdeteksi ✅")
+ok("Kondisi aman tidak trigger stop ✅")
 
-# Simulasi: loss sudah melewati limit
-sim_loss2 = Decimal("31000")
-if sim_loss2 >= sim_loss_limit:
-    ok(f"Stop LOSS LIMIT: {fmt(sim_loss2, 'idr')} ≥ {fmt(sim_loss_limit, 'idr')} → BERHENTI ✅")
-else:
-    fail("Stop-loss tidak terdeteksi")
+# ── TEST 6: VIP next-level lookup ─────────────────────────────────────────────
+header("TEST 6 — VIP Next-Level Lookup")
+from dice import VIP_LEVELS, VIP_ORDER
 
-# Simulasi: keduanya belum tercapai → lanjut
-sim_vol_aman  = Decimal("500000")
-sim_loss_aman = Decimal("5000")
-if sim_vol_aman < sim_target_vol and sim_loss_aman < sim_loss_limit:
-    ok(f"Kondisi normal: volume & loss masih aman → LANJUT ✅")
+for key in VIP_ORDER[:-1]:   # semua kecuali level terakhir
+    cur_idx  = VIP_ORDER.index(key)
+    next_key = VIP_ORDER[cur_idx + 1]
+    assert next_key in VIP_LEVELS, f"Next key '{next_key}' tidak ada di VIP_LEVELS"
+    ok(f"{VIP_LEVELS[key]['label']} → {VIP_LEVELS[next_key]['label']}")
 
-# ── TEST 6: CSV Logging ───────────────────────────────────────────────────────
-header("TEST 6 — CSV Logging")
-net = -total_loss
+diamond_info = VIP_LEVELS["diamond"]
+assert diamond_info["next_usd"] is None, "Diamond harus punya next_usd=None"
+ok("Diamond tidak punya next level (benar)")
+
+# ── TEST 7: CSV Logging ───────────────────────────────────────────────────────
+header("TEST 7 — CSV Logging")
+net      = -total_loss
+win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
+
 test_row = {
     "tanggal":          datetime.now().strftime("%Y-%m-%d %H:%M"),
     "ronde":            total,
@@ -161,13 +182,12 @@ test_row = {
     "win_rate_pct":     f"{win_rate:.1f}",
     "net_idr":          str(net),
     "vip_flag":         fp.get("flag", ""),
-    "vip_progress_pct": f"{float(fp.get('progress', 0)) * 100:.2f}",
+    "vip_progress_pct": f"{progress * 100:.2f}",
 }
 try:
     simpan_log_csv(test_row)
     ok(f"Log tersimpan ke {CSV_LOG}")
 
-    # Baca balik dan verifikasi
     with open(CSV_LOG, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     last = rows[-1]
