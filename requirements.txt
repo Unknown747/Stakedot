@@ -13,4 +13,4 @@ requests>=2.34.2
 
 # ─── Opsional (hanya jika menjalankan di lokal dengan file .env) ─────────────
 # Hapus tanda # di bawah jika kamu pakai file .env untuk menyimpan API Key:
-# python-dotenv>=1.0.0
+python-dotenv>=1.0.0
