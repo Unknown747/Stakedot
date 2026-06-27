@@ -321,11 +321,12 @@ def print_vip_status(flag_progress: dict):
     else:
         sisa_str = "  Level tertinggi tercapai!"
 
-    print(g(BLUE, "─" * 52))
-    print(f"  VIP Status  : {color}{g(BOLD, label)}{R}")
-    print(f"  Progress    : [{bar}] {g(BOLD, f'{pct:.1f}%')}")
-    print(g(DIM, sisa_str))
-    print(g(BLUE, "─" * 52))
+    print(f"  {g(CYAN, '◆')} {g(BOLD, 'VIP STATUS')}")
+    print(f"  {g(CYAN, '─' * 52)}")
+    print(f"  {'Level':<14} {color}{g(BOLD, label)}{R}")
+    print(f"  {'Progress':<14} [{bar}] {g(BOLD, f'{pct:.1f}%')}")
+    print(f"  {g(DIM, sisa_str.strip())}")
+    print(f"  {g(CYAN, '─' * 52)}")
 
 
 def simpan_log_csv(sesi: dict):
@@ -346,44 +347,48 @@ def simpan_log_csv(sesi: dict):
 
 
 def print_banner():
+    now = datetime.now().strftime("%d %b %Y  %H:%M")
     print(g(CYAN, """
-╔═══════════════════════════════════════════════════╗
-║   ____  _        _          ____  _               ║
-║  / ___|| |_ __ _| | _____  |  _ \\(_) ___ ___     ║
-║  \\___ \\| __/ _` | |/ / _ \\ | | | | |/ __/ _ \\    ║
-║   ___) | || (_| |   <  __/ | |_| | | (_|  __/    ║
-║  |____/ \\__\\__,_|_|\\_\\___| |____/|_|\\___\\___|    ║
-║                                                   ║
-║          Stake.com Dice CLI — by API              ║
-╚═══════════════════════════════════════════════════╝
-"""))
+  ╔═════════════════════════════════════════════════════╗
+  ║  ____  _        _          ____  _                  ║
+  ║ / ___|| |_ __ _| | _____  |  _ \\(_) ___ ___       ║
+  ║ \\___ \\| __/ _` | |/ / _ \\ | | | | |/ __/ _ \\     ║
+  ║  ___) | || (_| |   <  __/ | |_| | | (_|  __/       ║
+  ║ |____/ \\__\\__,_|_|\\_\\___| |____/|_|\\___\\___|      ║
+  ╠═════════════════════════════════════════════════════╣
+  ║       Stake.com Official API  ·  Auto Bet Bot       ║
+  ╚═════════════════════════════════════════════════════╝"""))
+    print(g(DIM, f"\n  ⏰  {now}\n"))
 
 
 def print_section(title):
-    print(f"\n{g(BLUE, '─' * 50)}")
-    print(f"  {g(BOLD, title)}")
-    print(g(BLUE, '─' * 50))
+    print(f"\n  {g(CYAN, '◆')} {g(BOLD, title)}")
+    print(f"  {g(CYAN, '─' * 52)}")
 
 
 def print_summary(stats, currency):
     print_section("RINGKASAN SESI")
-    total = stats["total"]
-    wins  = stats["wins"]
-    losses = stats["losses"]
-    profit = stats["profit"]
+    total    = stats["total"]
+    wins     = stats["wins"]
+    losses   = stats["losses"]
+    profit   = stats["profit"]
     win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
 
     profit_color = GREEN if profit >= 0 else RED
-    sign = "+" if profit >= 0 else ""
+    sign         = "+" if profit >= 0 else ""
 
-    print(f"  Ronde dimainkan  : {g(BOLD, str(total))}")
-    print(f"  Menang           : {g(GREEN, str(wins))}")
-    print(f"  Kalah            : {g(RED, str(losses))}")
-    print(f"  Win Rate         : {g(BOLD, f'{win_rate:.1f}%')}")
-    print(f"  Max Win Streak   : {g(GREEN, str(stats['max_win_streak']))}")
-    print(f"  Max Loss Streak  : {g(RED, str(stats['max_loss_streak']))}")
-    print(f"  Total Profit     : {g(profit_color, sign + fmt(profit, currency))}")
-    print(g(BLUE, '─' * 50))
+    max_ws = stats["max_win_streak"]
+    max_ls = stats["max_loss_streak"]
+    sep    = g(CYAN, "─" * 52)
+    print(f"  {'Ronde dimainkan':<18} {g(BOLD, str(total))}")
+    print(f"  {'Menang':<18} {g(GREEN, '✅  ' + str(wins))}")
+    print(f"  {'Kalah':<18} {g(RED, '❌  ' + str(losses))}")
+    print(f"  {'Win Rate':<18} {g(BOLD, str(win_rate.quantize(Decimal('0.1'))) + '%')}")
+    print(f"  {'Max Win Streak':<18} {g(GREEN, '🔥 ' + str(max_ws))}")
+    print(f"  {'Max Loss Streak':<18} {g(RED, '💧 ' + str(max_ls))}")
+    print(f"  {sep}")
+    print(f"  {'Total Profit':<18} {g(profit_color, BOLD + sign + fmt(profit, currency) + R)}")
+    print(f"  {sep}")
 
 
 # ─── Strategy VIP ─────────────────────────────────────────────────────────────
@@ -575,18 +580,16 @@ def jalankan_strategy_vip(user: dict):
 
             # ── Print log CLI ─────────────────────────────────────────────────
             print(
-                f"  {g(DIM, f'#{ronde:<5}')}"
-                f"Roll: {g(BOLD, f'{rolled_num:>6.2f}')} | "
-                f"{result_icon} {profit_str:<22} | "
-                f"Saldo: {g(CYAN, balance_str)}"
+                f"  {g(DIM, f'#{ronde:>04}')}  "
+                f"🎲 {g(BOLD, f'{rolled_num:>6.2f}')}  "
+                f"{result_icon}  {profit_str}  "
+                f"{g(DIM, '│')}  Saldo: {g(CYAN, balance_str)}"
             )
             print(
                 f"         "
-                f"Volume: [{volume_bar}] {g(CYAN, fmt(total_volume, currency))} — {vol_status}"
-            )
-            print(
-                f"         "
-                f"Loss  : {g(RED if total_loss > 0 else DIM, fmt(total_loss, currency))} — {loss_status}"
+                f"▸ Vol [{volume_bar}] {g(CYAN, fmt(total_volume, currency))}  {vol_status}  "
+                f"{g(DIM, '·')}  "
+                f"Loss {g(RED if total_loss > 0 else DIM, fmt(total_loss, currency))}  {loss_status}"
             )
             print()
 
@@ -610,15 +613,16 @@ def jalankan_strategy_vip(user: dict):
     net      = -total_loss  # positif = untung, negatif = rugi
 
     print_section("RINGKASAN STRATEGY VIP")
-    print(f"  Ronde dimainkan : {g(BOLD, str(total))}")
-    print(f"  Menang          : {g(GREEN, str(wins))}")
-    print(f"  Kalah           : {g(RED, str(losses))}")
-    print(f"  Win Rate        : {g(BOLD, f'{win_rate:.1f}%')}")
-    print(f"  Total Volume    : {g(CYAN, fmt(total_volume, currency))}")
     net_color = GREEN if net >= 0 else RED
     net_sign  = "+" if net >= 0 else ""
-    print(f"  Net Profit/Loss : {g(net_color, net_sign + fmt(net, currency))}")
-    print(g(BLUE, '─' * 50))
+    print(f"  {'Ronde dimainkan':<18} {g(BOLD, str(total))}")
+    print(f"  {'Menang':<18} {g(GREEN, f'✅  {wins}')}")
+    print(f"  {'Kalah':<18} {g(RED, f'❌  {losses}')}")
+    print(f"  {'Win Rate':<18} {g(BOLD, f'{win_rate:.1f}%')}")
+    print(f"  {'Total Volume':<18} {g(CYAN, fmt(total_volume, currency))}")
+    print(f"  {g(CYAN, '─' * 52)}")
+    print(f"  {'Net Profit/Loss':<18} {g(net_color, BOLD + net_sign + fmt(net, currency) + R)}")
+    print(f"  {g(CYAN, '─' * 52)}")
 
     # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
     flag_before = flag_progress.get("flag", "none")
@@ -952,16 +956,16 @@ def main():
             win_rate   = Decimal(stats["wins"]) / Decimal(ronde) * 100
 
             print(
-                f"  {g(DIM, f'#{ronde:<4}')} "
-                f"Roll: {g(BOLD, f'{rolled_num:>6.2f}')} | "
-                f"{result_icon} {profit_str:<28} | "
-                f"Saldo: {g(CYAN, balance_str)}"
+                f"  {g(DIM, f'#{ronde:>04}')}  "
+                f"🎲 {g(BOLD, f'{rolled_num:>6.2f}')}  "
+                f"{result_icon}  {profit_str}  "
+                f"{g(DIM, '│')}  Saldo: {g(CYAN, balance_str)}"
             )
             print(
                 f"         "
-                f"W/L: {g(GREEN, str(stats['wins']))}/{g(RED, str(stats['losses']))} "
-                f"({win_rate:.1f}%) | "
-                f"Total: {g(total_profit_color, total_sign + fmt(stats['profit'], currency))}"
+                f"▸ W/L {g(GREEN, str(stats['wins']))}{g(DIM, '/')}{g(RED, str(stats['losses']))} "
+                f"{g(DIM, f'({win_rate:.1f}%)')}  "
+                f"{g(DIM, '·')}  Total: {g(total_profit_color, total_sign + fmt(stats['profit'], currency))}"
             )
             print()
 
