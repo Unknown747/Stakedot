@@ -9,8 +9,10 @@ import sys
 import uuid
 import time
 import random
+import csv
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
+from datetime import datetime
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -52,9 +54,27 @@ query Me {
         currency
       }
     }
+    flagProgress {
+      flag
+      progress
+    }
   }
 }
 """
+
+# ─── VIP Config ────────────────────────────────────────────────────────────────
+
+# Level VIP Stake.com beserta total wager minimum (USD) dan warna CLI
+VIP_LEVELS = {
+    "none":        {"label": "Non-VIP",     "min_usd": 0,          "next_usd": 10_000,    "color": DIM    if 'DIM'    in dir() else ""},
+    "bronze":      {"label": "🥉 Bronze",    "min_usd": 10_000,     "next_usd": 50_000,    "color": "\033[33m"},
+    "silver":      {"label": "🥈 Silver",    "min_usd": 50_000,     "next_usd": 100_000,   "color": "\033[37m"},
+    "gold":        {"label": "🥇 Gold",      "min_usd": 100_000,    "next_usd": 250_000,   "color": "\033[93m"},
+    "platinum":    {"label": "💎 Platinum",  "min_usd": 250_000,    "next_usd": 500_000,   "color": "\033[96m"},
+    "platinumii":  {"label": "💎 Platinum II","min_usd": 500_000,   "next_usd": 1_000_000, "color": "\033[96m"},
+    "platinumiii": {"label": "💎 Platinum III","min_usd": 1_000_000,"next_usd": 2_500_000, "color": "\033[96m"},
+    "diamond":     {"label": "👑 Diamond",   "min_usd": 25_000_000, "next_usd": None,      "color": "\033[95m"},
+}
 
 DICE_MUTATION = """
 mutation DiceRoll(
@@ -242,6 +262,66 @@ def val_float_nonneg_or_empty(s):
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
 
+CSV_LOG = "log_sesi.csv"   # File log sesi otomatis
+
+
+def print_vip_status(flag_progress: dict):
+    """
+    Tampilkan status VIP akun secara visual di atas CLI.
+    Selalu dipanggil otomatis sebelum sesi Strategy VIP dimulai.
+    """
+    flag     = (flag_progress.get("flag") or "none").lower().replace(" ", "")
+    progress = float(flag_progress.get("progress") or 0)  # 0.0 – 1.0
+
+    info  = VIP_LEVELS.get(flag, VIP_LEVELS["none"])
+    color = info["color"]
+    label = info["label"]
+    pct   = progress * 100
+
+    # Progress bar 30 karakter
+    bar_len = 30
+    filled  = int(progress * bar_len)
+    bar     = f"{color}{'█' * filled}{R}{DIM}{'░' * (bar_len - filled)}{R}"
+
+    # Hitung sisa wager USD ke level berikutnya
+    next_usd  = info["next_usd"]
+    min_usd   = info["min_usd"]
+    if next_usd:
+        gap_total    = next_usd - min_usd
+        sudah        = gap_total * progress
+        sisa_usd     = gap_total - sudah
+        next_label   = VIP_LEVELS.get(
+            next((k for k, v in VIP_LEVELS.items() if v["min_usd"] == next_usd), "diamond"),
+            {}
+        ).get("label", "Next")
+        sisa_str = f"  Sisa ke {next_label}: ~${sisa_usd:,.0f} USD wager"
+    else:
+        sisa_str = "  Level tertinggi tercapai!"
+
+    print(g(BLUE, "─" * 52))
+    print(f"  VIP Status  : {color}{g(BOLD, label)}{R}")
+    print(f"  Progress    : [{bar}] {g(BOLD, f'{pct:.1f}%')}")
+    print(g(DIM, sisa_str))
+    print(g(BLUE, "─" * 52))
+
+
+def simpan_log_csv(sesi: dict):
+    """
+    Simpan ringkasan satu sesi ke file log_sesi.csv.
+    Kolom: tanggal, ronde, volume_idr, loss_idr, win_rate_pct, net_idr, vip_flag, vip_progress_pct
+    File dibuat otomatis jika belum ada, header ditulis sekali.
+    """
+    file_baru = not os.path.exists(CSV_LOG)
+    with open(CSV_LOG, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "tanggal", "ronde", "volume_idr", "loss_idr",
+            "win_rate_pct", "net_idr", "vip_flag", "vip_progress_pct",
+        ])
+        if file_baru:
+            writer.writeheader()   # Tulis header hanya jika file baru
+        writer.writerow(sesi)
+
+
 def print_banner():
     print(g(CYAN, """
 ╔═══════════════════════════════════════════════════╗
@@ -285,7 +365,7 @@ def print_summary(stats, currency):
 
 # ─── Strategy VIP ─────────────────────────────────────────────────────────────
 
-def jalankan_strategy_vip(initial_balance: Decimal):
+def jalankan_strategy_vip(user: dict):
     """
     Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 200.
 
@@ -298,21 +378,27 @@ def jalankan_strategy_vip(initial_balance: Decimal):
 
     Jeda antar bet menggunakan random.uniform(0.6, 1.3) detik agar
     pola request menyerupai pengguna biasa (tidak statis).
+
+    Returns True jika ingin lanjut sesi baru, False jika selesai.
     """
 
     # ── Konfigurasi strategi ──────────────────────────────────────────────────
-    currency       = "idr"           # Mata uang Rupiah
-    base_bet       = Decimal("200")  # Flat bet Rp 200, tidak naik saat kalah
+    currency       = "idr"               # Mata uang Rupiah
+    base_bet       = Decimal("200")      # Flat bet Rp 200, tidak naik saat kalah
     target_volume  = Decimal("2000000")  # Berhenti jika wager kumulatif ≥ Rp 2 juta
     max_loss_limit = Decimal("30000")    # Stop-loss: berhenti jika loss ≥ Rp 30 ribu
-    win_chance_pct = Decimal("98")   # Win chance 98%
-    condition      = "below"         # "below 98" → menang jika hasil < 98
-    target_num     = 98.0            # Target angka dice (float, dikirim ke API)
+    win_chance_pct = Decimal("98")       # Win chance 98%
+    condition      = "below"             # "below 98" → menang jika hasil < 98
+    target_num     = 98.0                # Target angka dice (float, dikirim ke API)
     # Multiplier aktual: 99 / 98 ≈ 1.0102x (house edge 1%)
     multiplier     = (Decimal("99") / win_chance_pct).quantize(
                          Decimal("0.000001"), rounding=ROUND_DOWN)
 
-    # ── Info awal ────────────────────────────────────────────────────────────
+    # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
+    flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
+    print_vip_status(flag_progress)
+
+    # ── Info konfigurasi sesi ─────────────────────────────────────────────────
     print_section("STRATEGY VIP — 98% WIN CHANCE")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
     print(f"  Flat Bet      : {g(BOLD, fmt(base_bet, currency))}")
@@ -431,9 +517,9 @@ def jalankan_strategy_vip(initial_balance: Decimal):
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
 
     # ── Ringkasan akhir sesi VIP ──────────────────────────────────────────────
-    total = wins + losses
+    total    = wins + losses
     win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
-    net = -total_loss  # positif = untung, negatif = rugi
+    net      = -total_loss  # positif = untung, negatif = rugi
 
     print_section("RINGKASAN STRATEGY VIP")
     print(f"  Ronde dimainkan : {g(BOLD, str(total))}")
@@ -445,6 +531,28 @@ def jalankan_strategy_vip(initial_balance: Decimal):
     net_sign  = "+" if net >= 0 else ""
     print(f"  Net Profit/Loss : {g(net_color, net_sign + fmt(net, currency))}")
     print(g(BLUE, '─' * 50))
+
+    # ── Simpan log sesi ke CSV ────────────────────────────────────────────────
+    if total > 0:
+        simpan_log_csv({
+            "tanggal":          datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "ronde":            total,
+            "volume_idr":       str(total_volume),
+            "loss_idr":         str(total_loss),
+            "win_rate_pct":     f"{win_rate:.1f}",
+            "net_idr":          str(net),
+            "vip_flag":         flag_progress.get("flag", ""),
+            "vip_progress_pct": f"{float(flag_progress.get('progress', 0)) * 100:.2f}",
+        })
+        print(g(DIM, f"  📄 Log sesi disimpan ke {CSV_LOG}"))
+
+    # ── Tanya apakah mau mulai sesi baru ─────────────────────────────────────
+    print()
+    try:
+        jawab = input(g(YELLOW, "  🔁 Mulai sesi baru? (y/n): ")).strip().lower()
+        return jawab in ("y", "ya", "yes", "1")
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
@@ -483,13 +591,6 @@ def main():
     else:
         print(g(DIM, "  (semua saldo kosong)"))
 
-    # Ambil saldo IDR untuk diteruskan ke strategy VIP
-    idr_balance = to_dec(
-        next((b["available"]["amount"]
-              for b in user["balances"]
-              if b["available"]["currency"] == "idr"), "0")
-    )
-
     # ── Pilih mode ────────────────────────────────────────────────────────────
     print_section("PILIH MODE")
     print(f"  {g(BOLD, '1.')} Dice Biasa       — atur sendiri currency, bet, target, dll")
@@ -500,9 +601,23 @@ def main():
 
     mode_main = ask("\nPilih mode (1/2): ", validator=val_mode_main)
 
-    # Jalankan Strategy VIP langsung jika dipilih
+    # ── Strategy VIP: loop auto-restart ──────────────────────────────────────
     if mode_main == "2":
-        jalankan_strategy_vip(initial_balance=idr_balance)
+        sesi_ke = 1
+        while True:
+            print(g(CYAN, f"\n  ═══ SESI #{sesi_ke} ═══"))
+
+            # Refresh data user (saldo & VIP progress terbaru) setiap sesi baru
+            try:
+                user = gql(USER_QUERY)["user"]
+            except Exception:
+                pass  # Gunakan data lama jika gagal refresh
+
+            lanjut = jalankan_strategy_vip(user=user)
+            if not lanjut:
+                print(g(YELLOW, "\n  Sampai jumpa! 👋"))
+                break
+            sesi_ke += 1
         return
 
     # ── Mode Dice Biasa (lanjut konfigurasi manual) ───────────────────────────
