@@ -8,6 +8,7 @@ import os
 import sys
 import uuid
 import time
+import random
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 
@@ -129,15 +130,16 @@ def gql(query, variables=None):
 # ─── Helper ────────────────────────────────────────────────────────────────────
 
 CURRENCY_LIST = {
-    "1": "btc",
-    "2": "eth",
-    "3": "ltc",
-    "4": "doge",
-    "5": "xrp",
-    "6": "trx",
-    "7": "usdt",
-    "8": "usdc",
-    "9": "bnb",
+    "1":  "btc",
+    "2":  "eth",
+    "3":  "ltc",
+    "4":  "doge",
+    "5":  "xrp",
+    "6":  "trx",
+    "7":  "usdt",
+    "8":  "usdc",
+    "9":  "bnb",
+    "10": "idr",
 }
 
 # Presisi desimal per currency
@@ -145,6 +147,7 @@ CURRENCY_DECIMALS = {
     "btc": 8, "eth": 8, "ltc": 8, "bch": 8,
     "doge": 4, "xrp": 4, "trx": 4, "eos": 4,
     "bnb": 6, "usdt": 4, "usdc": 4,
+    "idr": 2,   # Rupiah — 2 desimal
 }
 
 # Quanta Decimal per currency (untuk ROUND_DOWN)
@@ -280,6 +283,170 @@ def print_summary(stats, currency):
     print(g(BLUE, '─' * 50))
 
 
+# ─── Strategy VIP ─────────────────────────────────────────────────────────────
+
+def jalankan_strategy_vip(initial_balance: Decimal):
+    """
+    Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 200.
+
+    Tujuan  : Mengumpulkan volume taruhan sebesar-besarnya (untuk naik VIP)
+              dengan risiko seminimal mungkin menggunakan modal terbatas.
+
+    Berhenti otomatis jika:
+      - Total volume taruhan sudah mencapai target_volume (Rp 2.000.000), ATAU
+      - Total loss sudah mencapai max_loss_limit (Rp 30.000).
+
+    Jeda antar bet menggunakan random.uniform(0.6, 1.3) detik agar
+    pola request menyerupai pengguna biasa (tidak statis).
+    """
+
+    # ── Konfigurasi strategi ──────────────────────────────────────────────────
+    currency       = "idr"           # Mata uang Rupiah
+    base_bet       = Decimal("200")  # Flat bet Rp 200, tidak naik saat kalah
+    target_volume  = Decimal("2000000")  # Berhenti jika wager kumulatif ≥ Rp 2 juta
+    max_loss_limit = Decimal("30000")    # Stop-loss: berhenti jika loss ≥ Rp 30 ribu
+    win_chance_pct = Decimal("98")   # Win chance 98%
+    condition      = "below"         # "below 98" → menang jika hasil < 98
+    target_num     = 98.0            # Target angka dice (float, dikirim ke API)
+    # Multiplier aktual: 99 / 98 ≈ 1.0102x (house edge 1%)
+    multiplier     = (Decimal("99") / win_chance_pct).quantize(
+                         Decimal("0.000001"), rounding=ROUND_DOWN)
+
+    # ── Info awal ────────────────────────────────────────────────────────────
+    print_section("STRATEGY VIP — 98% WIN CHANCE")
+    print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
+    print(f"  Flat Bet      : {g(BOLD, fmt(base_bet, currency))}")
+    print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
+    print(f"  Target Volume : {g(CYAN,  fmt(target_volume,  currency))}")
+    print(f"  Max Loss      : {g(RED,   fmt(max_loss_limit, currency))}")
+    print(f"  Jeda          : {g(DIM,   '0.6 – 1.3 detik (acak)')}")
+    print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
+
+    # ── State tracker ────────────────────────────────────────────────────────
+    total_volume    = Decimal("0")  # Akumulasi total uang yang ditaruhkan
+    total_loss      = Decimal("0")  # Total saldo yang berkurang dari awal
+    wins            = 0
+    losses          = 0
+    consecutive_err = 0
+    ronde           = 0
+
+    try:
+        while True:
+
+            # ── Kirim taruhan ke Stake via API ────────────────────────────────
+            identifier = str(uuid.uuid4())  # ID unik per bet (wajib oleh API)
+            try:
+                api_result = gql(DICE_MUTATION, {
+                    "amount":     float(base_bet),  # API minta Float
+                    "target":     target_num,
+                    "condition":  condition,
+                    "currency":   currency,
+                    "identifier": identifier,
+                })
+                roll           = api_result["diceRoll"]
+                consecutive_err = 0  # Reset counter error jika berhasil
+            except PermissionError as e:
+                # API Key tidak valid → tidak ada gunanya lanjut
+                print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
+                break
+            except Exception as e:
+                consecutive_err += 1
+                print(g(RED, f"  ❌ Error API ({consecutive_err}/{MAX_CONSECUTIVE_ERRORS}): {e}"))
+                if consecutive_err >= MAX_CONSECUTIVE_ERRORS:
+                    print(g(RED, "  🛑 Terlalu banyak error berturut-turut. Sesi dihentikan."))
+                    break
+                time.sleep(2)   # Tunggu sebentar sebelum retry
+                continue
+
+            ronde += 1
+
+            # ── Tentukan menang/kalah dari data game result (bukan payout) ───
+            won    = determine_win(roll["result"])
+            payout = to_dec(roll["payout"])
+            amount = to_dec(roll["amount"])
+            profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+
+            # ── Update statistik ──────────────────────────────────────────────
+            total_volume += base_bet          # Setiap bet selalu menambah volume
+            total_loss   -= profit            # Jika menang: profit positif → loss turun
+                                              # Jika kalah : profit negatif → loss naik
+
+            if won:
+                wins += 1
+                result_icon = g(GREEN, "✅ MENANG")
+                profit_str  = g(GREEN, f"+{fmt(profit, currency)}")
+            else:
+                losses += 1
+                result_icon = g(RED, "❌ KALAH ")
+                profit_str  = g(RED, fmt(profit, currency))   # profit sudah negatif
+
+            # ── Progress bar volume (visual sederhana) ────────────────────────
+            pct_volume  = min(total_volume / target_volume * 100, Decimal("100"))
+            pct_loss    = min(total_loss   / max_loss_limit * 100, Decimal("100"))
+            bar_len     = 20
+            filled      = int(pct_volume / 100 * bar_len)
+            volume_bar  = g(CYAN, "█" * filled) + g(DIM, "░" * (bar_len - filled))
+
+            # ── Status stop-condition ─────────────────────────────────────────
+            vol_status  = (g(GREEN, "✅ TERCAPAI")
+                           if total_volume >= target_volume
+                           else g(DIM, f"{pct_volume:.1f}% dari target"))
+            loss_status = (g(RED, "🛑 LIMIT")
+                           if total_loss >= max_loss_limit
+                           else g(DIM, f"{pct_loss:.1f}% dari limit"))
+
+            rolled_num  = float(roll["result"]["result"])
+            balance_raw = roll.get("balance")
+            balance_str = fmt(balance_raw["available"], currency) if balance_raw else "N/A"
+
+            # ── Print log CLI ─────────────────────────────────────────────────
+            print(
+                f"  {g(DIM, f'#{ronde:<5}')}"
+                f"Roll: {g(BOLD, f'{rolled_num:>6.2f}')} | "
+                f"{result_icon} {profit_str:<22} | "
+                f"Saldo: {g(CYAN, balance_str)}"
+            )
+            print(
+                f"         "
+                f"Volume: [{volume_bar}] {g(CYAN, fmt(total_volume, currency))} — {vol_status}"
+            )
+            print(
+                f"         "
+                f"Loss  : {g(RED if total_loss > 0 else DIM, fmt(total_loss, currency))} — {loss_status}"
+            )
+            print()
+
+            # ── Cek kondisi berhenti ──────────────────────────────────────────
+            if total_volume >= target_volume:
+                print(g(GREEN, f"  🎯 Target volume Rp 2.000.000 tercapai! Sesi selesai."))
+                break
+            if total_loss >= max_loss_limit:
+                print(g(RED, f"  🛑 Stop-loss Rp 30.000 tercapai! Sesi dihentikan untuk mengamankan saldo."))
+                break
+
+            # ── Jeda acak 0.6 – 1.3 detik (menyerupai pola manusia) ──────────
+            time.sleep(random.uniform(0.6, 1.3))
+
+    except KeyboardInterrupt:
+        print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
+
+    # ── Ringkasan akhir sesi VIP ──────────────────────────────────────────────
+    total = wins + losses
+    win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
+    net = -total_loss  # positif = untung, negatif = rugi
+
+    print_section("RINGKASAN STRATEGY VIP")
+    print(f"  Ronde dimainkan : {g(BOLD, str(total))}")
+    print(f"  Menang          : {g(GREEN, str(wins))}")
+    print(f"  Kalah           : {g(RED, str(losses))}")
+    print(f"  Win Rate        : {g(BOLD, f'{win_rate:.1f}%')}")
+    print(f"  Total Volume    : {g(CYAN, fmt(total_volume, currency))}")
+    net_color = GREEN if net >= 0 else RED
+    net_sign  = "+" if net >= 0 else ""
+    print(f"  Net Profit/Loss : {g(net_color, net_sign + fmt(net, currency))}")
+    print(g(BLUE, '─' * 50))
+
+
 # ─── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -316,16 +483,40 @@ def main():
     else:
         print(g(DIM, "  (semua saldo kosong)"))
 
+    # Ambil saldo IDR untuk diteruskan ke strategy VIP
+    idr_balance = to_dec(
+        next((b["available"]["amount"]
+              for b in user["balances"]
+              if b["available"]["currency"] == "idr"), "0")
+    )
+
+    # ── Pilih mode ────────────────────────────────────────────────────────────
+    print_section("PILIH MODE")
+    print(f"  {g(BOLD, '1.')} Dice Biasa       — atur sendiri currency, bet, target, dll")
+    print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 200/roll, stop-loss Rp 30rb")
+
+    def val_mode_main(s):
+        return s if s in ("1", "2") else None
+
+    mode_main = ask("\nPilih mode (1/2): ", validator=val_mode_main)
+
+    # Jalankan Strategy VIP langsung jika dipilih
+    if mode_main == "2":
+        jalankan_strategy_vip(initial_balance=idr_balance)
+        return
+
+    # ── Mode Dice Biasa (lanjut konfigurasi manual) ───────────────────────────
+
     # Pilih currency
     print_section("KONFIGURASI BET")
     print(g(WHITE, "  Pilih currency:"))
     for k, v in CURRENCY_LIST.items():
-        print(f"    {k}. {v.upper()}")
+        print(f"    {k:>2}. {v.upper()}")
 
     def val_currency(s):
         return CURRENCY_LIST.get(s)
 
-    currency = ask("\nPilihan currency (1-9): ", validator=val_currency)
+    currency = ask("\nPilihan currency (1-10): ", validator=val_currency)
     print(g(DIM, f"  → {currency.upper()} dipilih\n"))
 
     # Jumlah bet
