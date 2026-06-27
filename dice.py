@@ -388,6 +388,55 @@ def print_summary(stats, currency):
 
 # ─── Strategy VIP ─────────────────────────────────────────────────────────────
 
+def human_delay(consecutive_loss: int = 0, ronde: int = 1):
+    """
+    Jeda yang menyerupai perilaku manusia nyata.
+
+    Lapisan jeda (dari yang paling sering ke paling jarang):
+      1. Normal (>90% bet)      : distribusi gaussian ~0.9 dtk, range 0.4–2.5 dtk
+      2. Micro-break (~7%)      : 4–18 detik  — seperti scroll feed, baca chat
+      3. Thinking pause (~3%)   : 2.5–6 detik — setelah kalah, manusia cenderung
+                                  "berpikir" sebelum bet berikutnya
+      4. Long break (~0.8%)     : 45–150 detik — toilet, ambil minuman, dll
+      5. Extra loss pause       : +0.5–2 dtk tambahan jika sedang kalah beruntun
+    """
+    roll = random.random()
+
+    if roll < 0.008:
+        # Long break — sangat jarang, seperti keluar sebentar
+        pause = random.uniform(45, 150)
+        print(g(DIM, f"  ☕ Istirahat sebentar... ({pause:.0f} dtk)"))
+        time.sleep(pause)
+        return
+
+    if roll < 0.038:
+        # Micro-break — scroll HP, baca chat, dsb
+        pause = random.uniform(4, 18)
+        time.sleep(pause)
+        return
+
+    if roll < 0.068:
+        # Thinking pause — manusia merenung setelah kalah
+        pause = random.uniform(2.5, 6.0)
+        time.sleep(pause)
+        return
+
+    # Normal bet — gaussian agar tidak metronomis
+    base = random.gauss(mu=0.9, sigma=0.35)
+    base = max(0.4, min(base, 2.5))  # Clamp agar tidak negatif / terlalu lama
+
+    # Extra pause jika sedang kalah beruntun (manusia frustrasi = lebih lambat)
+    if consecutive_loss >= 2:
+        extra = random.uniform(0.5, 2.0)
+        base += extra
+
+    # Kadang ketik sesuatu / klik hal lain sebelum bet (1 dari 12 ronde)
+    if ronde > 1 and ronde % random.randint(10, 15) == 0:
+        base += random.uniform(1.0, 3.5)
+
+    time.sleep(base)
+
+
 def jalankan_strategy_vip(user: dict):
     """
     Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 200.
@@ -399,8 +448,8 @@ def jalankan_strategy_vip(user: dict):
       - Total volume taruhan sudah mencapai target_volume (Rp 2.000.000), ATAU
       - Total loss sudah mencapai max_loss_limit (Rp 30.000).
 
-    Jeda antar bet menggunakan random.uniform(0.6, 1.3) detik agar
-    pola request menyerupai pengguna biasa (tidak statis).
+    Jeda antar bet menggunakan human_delay() — distribusi gaussian + micro-break
+    + long break acak agar pola request menyerupai manusia nyata.
 
     Returns True jika ingin lanjut sesi baru, False jika selesai.
     """
@@ -428,7 +477,7 @@ def jalankan_strategy_vip(user: dict):
     print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
     print(f"  Target Volume : {g(CYAN,  fmt(target_volume,  currency))}")
     print(f"  Max Loss      : {g(RED,   fmt(max_loss_limit, currency))}")
-    print(f"  Jeda          : {g(DIM,   '0.6 – 1.3 detik (acak)')}")
+    print(f"  Jeda          : {g(DIM,   'Human-like: gaussian ~0.9 dtk + micro/long break acak')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
     # ── State tracker ────────────────────────────────────────────────────────
@@ -437,6 +486,7 @@ def jalankan_strategy_vip(user: dict):
     wins            = 0
     losses          = 0
     consecutive_err = 0
+    consecutive_loss = 0  # Untuk human_delay — kalah beruntun = jeda lebih panjang
     ronde           = 0
 
     try:
@@ -493,10 +543,12 @@ def jalankan_strategy_vip(user: dict):
 
             if won:
                 wins += 1
+                consecutive_loss = 0  # Reset streak kalah
                 result_icon = g(GREEN, "✅ MENANG")
                 profit_str  = g(GREEN, f"+{fmt(profit, currency)}")
             else:
                 losses += 1
+                consecutive_loss += 1  # Tambah streak kalah
                 result_icon = g(RED, "❌ KALAH ")
                 profit_str  = g(RED, fmt(profit, currency))
 
@@ -546,8 +598,8 @@ def jalankan_strategy_vip(user: dict):
                 print(g(RED, f"  🛑 Stop-loss Rp 30.000 tercapai! Sesi dihentikan untuk mengamankan saldo."))
                 break
 
-            # ── Jeda acak 0.6 – 1.3 detik (menyerupai pola manusia) ──────────
-            time.sleep(random.uniform(0.6, 1.3))
+            # ── Jeda human-like: gaussian + micro/long break acak ────────────
+            human_delay(consecutive_loss, ronde)
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
