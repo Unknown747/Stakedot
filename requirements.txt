@@ -1,0 +1,16 @@
+# ─── Stake.com Dice CLI — Requirements ───────────────────────────────────────
+# Install semua dependensi dengan perintah:
+#   pip install -r requirements.txt
+
+# HTTP client — untuk komunikasi dengan Stake.com GraphQL API
+requests>=2.34.2
+
+# Dependensi otomatis dari requests (tidak perlu install manual):
+#   urllib3        — HTTP connection pooling
+#   certifi        — SSL certificate bundle
+#   charset-normalizer — encoding detection
+#   idna           — internationalized domain names
+
+# ─── Opsional (hanya jika menjalankan di lokal dengan file .env) ─────────────
+# Hapus tanda # di bawah jika kamu pakai file .env untuk menyimpan API Key:
+# python-dotenv>=1.0.0
