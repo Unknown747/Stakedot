@@ -9,6 +9,8 @@
 4. [Cara Menjalankan Script](#4-cara-menjalankan-script)
 5. [Panduan Menu](#5-panduan-menu)
 6. [Strategy VIP (Rekomendasi)](#6-strategy-vip-rekomendasi)
+7. [Audit & Test](#7-audit--test)
+8. [Struktur File](#8-struktur-file)
 
 ---
 
@@ -18,7 +20,7 @@
 2. Klik foto profil → **Settings**
 3. Pilih tab **API**
 4. Klik **Create API Key**
-5. Beri nama key (contoh: `dice-bot`)
+5. Beri nama key (contoh: `dice-cli`)
 6. Salin key yang muncul — **simpan baik-baik, hanya tampil sekali**
 
 > ⚠️ Jangan bagikan API Key ke siapapun. Key ini punya akses penuh ke akun kamu.
@@ -27,7 +29,7 @@
 
 ## 2. Setting Environment Variable
 
-Ada **2 cara** tergantung kamu menjalankan script di mana:
+Ada **3 cara** tergantung kamu menjalankan script di mana:
 
 ---
 
@@ -55,12 +57,7 @@ Replit menyimpan API Key sebagai **Secret** (lebih aman dari .env biasa):
 STAKE_API_KEY=masukkan_api_key_kamu_disini
 ```
 
-Contoh isi file `.env`:
-```
-STAKE_API_KEY=abc123xyz456def789
-```
-
-**Langkah 2** — Install library `python-dotenv` untuk membaca file `.env`:
+**Langkah 2** — Install library `python-dotenv`:
 
 ```bash
 pip install python-dotenv requests
@@ -70,14 +67,12 @@ pip install python-dotenv requests
 
 ```python
 from dotenv import load_dotenv
-load_dotenv()   # Membaca file .env secara otomatis
+load_dotenv()
 ```
 
 ---
 
 ### ✅ Cara C — Export langsung di Terminal
-
-Tanpa file `.env`, bisa langsung export di terminal sebelum menjalankan script:
 
 **Linux / macOS / Replit Shell:**
 ```bash
@@ -101,8 +96,11 @@ python dice.py
 
 ## 3. Instalasi Dependensi
 
-Script hanya butuh satu library eksternal: `requests`
+```bash
+pip install -r requirements.txt
+```
 
+Atau manual:
 ```bash
 pip install requests
 ```
@@ -121,10 +119,11 @@ python dice.py
 ```
 
 Script akan otomatis:
-- Mengecek API Key
+- Cek API Key
 - Login ke Stake.com
-- Menampilkan saldo akun
-- Menampilkan menu pilihan mode
+- Tampilkan statistik kumulatif dari semua sesi sebelumnya
+- Tampilkan saldo akun
+- Tampilkan menu pilihan mode
 
 ---
 
@@ -173,6 +172,13 @@ Auto-bet langsung jalan tanpa konfigurasi tambahan:
 | Stop otomatis | Total wager ≥ Rp 2.000.000 |
 | Stop-loss | Loss kumulatif ≥ Rp 30.000 |
 | Jeda antar bet | 0.6 – 1.3 detik (acak) |
+| Auto-restart | Tanya lanjut sesi baru setelah selesai |
+
+**Fitur otomatis di setiap sesi:**
+- VIP status + progress bar tampil di atas CLI sebelum sesi dimulai
+- VIP progress di-refresh dari API setelah sesi selesai
+- Alert khusus jika level VIP naik selama sesi
+- Log sesi disimpan ke `log_sesi.csv` secara otomatis
 
 ---
 
@@ -202,6 +208,24 @@ Auto-bet langsung jalan tanpa konfigurasi tambahan:
 
 ---
 
+## 7. Audit & Test
+
+Jalankan test script untuk memverifikasi semua komponen berjalan sebelum sesi panjang:
+
+```bash
+python test_audit.py
+```
+
+Test yang dicek secara otomatis:
+1. **Koneksi & Login** — pastikan API Key valid
+2. **VIP Status Display** — tampilkan progress bar
+3. **Saldo IDR** — konfirmasi saldo tersedia
+4. **Live Bet 5 Ronde** — taruhan nyata kecil untuk validasi API
+5. **Stop Condition Logic** — simulasi trigger target volume & stop-loss
+6. **CSV Logging** — simpan & baca balik log sesi
+
+---
+
 ## 🛑 Peringatan Penting
 
 - Script ini menggunakan **API resmi Stake.com** — bukan browser bot
@@ -211,11 +235,14 @@ Auto-bet langsung jalan tanpa konfigurasi tambahan:
 
 ---
 
-## 📁 Struktur File
+## 8. Struktur File
 
 ```
 /
-├── dice.py       ← Script utama
-├── play.md       ← Panduan ini
-└── .env          ← (Opsional, jika jalankan di lokal)
+├── dice.py          ← Script utama
+├── test_audit.py    ← Audit & test semua komponen
+├── play.md          ← Panduan ini
+├── requirements.txt ← Dependensi Python
+├── .gitignore       ← File yang dikecualikan dari git
+└── log_sesi.csv     ← Log otomatis setiap sesi (dibuat saat pertama run)
 ```

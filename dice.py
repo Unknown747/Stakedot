@@ -542,6 +542,33 @@ def jalankan_strategy_vip(user: dict):
     print(f"  Net Profit/Loss : {g(net_color, net_sign + fmt(net, currency))}")
     print(g(BLUE, '─' * 50))
 
+    # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
+    flag_before = flag_progress.get("flag", "none")
+    prog_before = float(flag_progress.get("progress", 0))
+    try:
+        fresh_user   = gql(USER_QUERY)["user"]
+        flag_after   = fresh_user.get("flagProgress") or {"flag": "none", "progress": 0}
+        flag_now     = flag_after.get("flag", "none")
+        prog_now     = float(flag_after.get("progress", 0))
+
+        print()
+        print(g(BOLD, "  📊 VIP Progress setelah sesi:"))
+        print_vip_status(flag_after)
+
+        # ── Alert naik level ──────────────────────────────────────────────────
+        if flag_now != flag_before:
+            print(g(GREEN, f"""
+  ╔══════════════════════════════════════════╗
+  ║  🎉  SELAMAT! LEVEL VIP NAIK!           ║
+  ║  {flag_before.upper():<10} → {flag_now.upper():<10}              ║
+  ╚══════════════════════════════════════════╝"""))
+        else:
+            gain = (prog_now - prog_before) * 100
+            print(g(DIM, f"  Progress naik: +{gain:.2f}% dalam sesi ini"))
+
+    except Exception:
+        pass  # Jika gagal refresh, lanjut tanpa crash
+
     # ── Simpan log sesi ke CSV ────────────────────────────────────────────────
     if total > 0:
         simpan_log_csv({
@@ -551,10 +578,10 @@ def jalankan_strategy_vip(user: dict):
             "loss_idr":         str(total_loss),
             "win_rate_pct":     f"{win_rate:.1f}",
             "net_idr":          str(net),
-            "vip_flag":         flag_progress.get("flag", ""),
-            "vip_progress_pct": f"{float(flag_progress.get('progress', 0)) * 100:.2f}",
+            "vip_flag":         flag_before,
+            "vip_progress_pct": f"{prog_before * 100:.2f}",
         })
-        print(g(DIM, f"  📄 Log sesi disimpan ke {CSV_LOG}"))
+        print(g(DIM, f"\n  📄 Log sesi disimpan ke {CSV_LOG}"))
 
     # ── Tanya apakah mau mulai sesi baru ─────────────────────────────────────
     print()
@@ -587,6 +614,29 @@ def main():
         sys.exit(1)
 
     print(g(GREEN, f"✅ Login sebagai: {g(BOLD, user['name'])}"))
+
+    # ── Statistik kumulatif dari CSV ──────────────────────────────────────────
+    if os.path.exists(CSV_LOG):
+        try:
+            with open(CSV_LOG, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            if rows:
+                total_sesi    = len(rows)
+                total_vol     = sum(Decimal(r["volume_idr"])  for r in rows)
+                total_net     = sum(Decimal(r["net_idr"])     for r in rows)
+                total_ronde   = sum(int(r["ronde"])           for r in rows)
+                last          = rows[-1]
+                print_section("STATISTIK KUMULATIF SEMUA SESI")
+                print(f"  Total sesi      : {g(BOLD, str(total_sesi))}")
+                print(f"  Total ronde     : {g(BOLD, str(total_ronde))}")
+                print(f"  Total volume    : {g(CYAN, fmt(total_vol, 'idr'))}")
+                net_c = GREEN if total_net >= 0 else RED
+                net_s = "+" if total_net >= 0 else ""
+                print(f"  Total net P/L   : {g(net_c, net_s + fmt(total_net, 'idr'))}")
+                print(f"  Sesi terakhir   : {g(DIM, last['tanggal'])} "
+                      f"— VIP {last['vip_flag'].upper()} {last['vip_progress_pct']}%")
+        except Exception:
+            pass  # Jika CSV rusak, lanjut tanpa crash
 
     # Tampilkan saldo
     print_section("SALDO AKUN")

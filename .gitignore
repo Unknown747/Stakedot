@@ -1,0 +1,25 @@
+# Log sesi otomatis
+log_sesi.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables (jika pakai lokal)
+.env
+
+# Virtual environment
+.venv/
+venv/
+.pythonlibs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
