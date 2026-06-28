@@ -837,6 +837,15 @@ def main():
         print(g(GREEN, f"  ✅ VPS Auto-Run aktif — istirahat {rest_menit} menit antar sesi"))
         print(g(DIM,   "  Script berjalan sampai Ctrl+C saat betting atau terjadi auth error.\n"))
 
+        waktu_start = datetime.now().strftime("%d/%m/%Y %H:%M")
+        kirim_telegram(
+            f"🤖 <b>BOT STARTED</b>\n"
+            f"VPS Auto-Run aktif — {waktu_start}\n"
+            f"Akun: {user.get('name', '?')}\n"
+            f"Base Bet: Rp 600 | Win Chance: 98%\n"
+            f"Stop-Loss: Rp 45.000 | Istirahat: {rest_menit} mnt/sesi"
+        )
+
         sesi_ke = 1
         while True:
             waktu_mulai = datetime.now().strftime("%d/%m %H:%M")
