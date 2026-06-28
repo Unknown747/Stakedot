@@ -177,6 +177,7 @@ Auto-bet langsung jalan:
 | Log terminal | Setiap 50 bet |
 | Istirahat checkpoint | Setiap Rp 5.000.000 wager → 15 menit, lanjut otomatis |
 | Stop-loss | Loss ≥ Rp 30.000 → istirahat 5–10 menit, lanjut sesi baru |
+| **Top-Up Alert** | **Saldo < Rp 50.000 → notif Telegram (sekali per sesi)** |
 | Notifikasi | Telegram (jika disetup) |
 
 Fitur otomatis:

@@ -520,6 +520,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
     max_loss_limit      = Decimal("30000")     # Stop-loss: berhenti jika loss ≥ Rp 30 ribu
+    topup_alert_idr     = Decimal("50000")     # ← Kirim alert Telegram jika saldo < X (Rp 50 ribu)
     win_chance_pct      = Decimal("98")
     condition           = "below"
     target_num          = 98.0
@@ -550,6 +551,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     ronde                = 0
     stopped_by_user      = False
     next_rest_checkpoint = rest_setiap_volume  # Checkpoint volume berikutnya
+    _topup_notified      = False               # Agar alert top-up hanya kirim sekali per sesi
 
     try:
         while True:
@@ -604,6 +606,25 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             bal_amount = next(
                 (b["available"]["amount"] for b in user_bals
                  if b["available"]["currency"] == currency), None)
+
+            # ── Top-Up Alert: saldo < threshold → notif Telegram sekali ──────
+            if (
+                bal_amount is not None
+                and not _topup_notified
+                and to_dec(bal_amount) < topup_alert_idr
+            ):
+                _topup_notified = True
+                print(g(RED,
+                    f"\n  ⚠️  Saldo hampir habis! "
+                    f"Sisa: {fmt(bal_amount, currency)} "
+                    f"(batas alert: {fmt(topup_alert_idr, currency)})\n"
+                ))
+                kirim_telegram(
+                    f"⚠️ <b>SALDO HAMPIR HABIS!</b>\n"
+                    f"Sisa saldo: {fmt(bal_amount, currency)}\n"
+                    f"Bet #{ronde} | Wager sesi: {fmt(total_volume, currency)}\n"
+                    f"Segera top up agar bot tidak berhenti."
+                )
 
             # ── Log setiap 50 bet ─────────────────────────────────────────────
             if ronde % 50 == 0:
