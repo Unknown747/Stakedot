@@ -15,16 +15,13 @@ import uuid
 import time
 import random
 import csv
-import threading
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from datetime import datetime
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-API_KEY          = os.environ.get("STAKE_API_KEY", "")
-TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+API_KEY = os.environ.get("STAKE_API_KEY", "")
 
 API_URL = "https://stake.com/_api/graphql"
 HEADERS = {
@@ -39,31 +36,6 @@ SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
 MAX_CONSECUTIVE_ERRORS = 5  # Berhenti jika gagal N kali berturut-turut
-
-
-def _kirim_telegram_worker(pesan: str):
-    """Worker internal — jangan panggil langsung. Dijalankan di background thread."""
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": pesan, "parse_mode": "HTML"},
-            timeout=15,
-        )
-    except Exception:
-        pass  # Notifikasi gagal tidak boleh menghentikan script
-
-
-def kirim_telegram(pesan: str):
-    """
-    Kirim notifikasi teks ke Telegram secara NON-BLOCKING (background thread).
-    Loop bet utama langsung lanjut tanpa menunggu respons server Telegram.
-    Butuh env vars: TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID.
-    Diam-diam (silent fail) jika token tidak diset.
-    """
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    t = threading.Thread(target=_kirim_telegram_worker, args=(pesan,), daemon=True)
-    t.start()
 
 # ─── Warna Terminal ────────────────────────────────────────────────────────────
 
@@ -627,7 +599,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 (b["available"]["amount"] for b in user_bals
                  if b["available"]["currency"] == currency), None)
 
-            # ── Top-Up Alert: saldo < threshold → notif Telegram sekali ──────
+            # ── Top-Up Alert: saldo < threshold → cetak sekali di terminal ─────
             if (
                 bal_amount is not None
                 and not _topup_notified
@@ -635,27 +607,43 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             ):
                 _topup_notified = True
                 print(g(RED,
-                    f"\n  ⚠️  Saldo hampir habis! "
+                    f"\n  ⚠️  SALDO HAMPIR HABIS! "
                     f"Sisa: {fmt(bal_amount, currency)} "
-                    f"(batas alert: {fmt(topup_alert_idr, currency)})\n"
+                    f"(batas: {fmt(topup_alert_idr, currency)}) — segera top up!\n"
                 ))
-                kirim_telegram(
-                    f"⚠️ <b>SALDO HAMPIR HABIS!</b>\n"
-                    f"Sisa saldo: {fmt(bal_amount, currency)}\n"
-                    f"Bet #{ronde} | Wager sesi: {fmt(total_volume, currency)}\n"
-                    f"Segera top up agar bot tidak berhenti."
-                )
 
-            # ── Log setiap spin — termasuk durasi bot berjalan ────────────────
-            elapsed     = datetime.now() - sesi_mulai
-            total_sec   = int(elapsed.total_seconds())
-            jam, sisa   = divmod(total_sec, 3600)
-            mnt, dtk    = divmod(sisa, 60)
-            durasi_str  = f"{jam:02d}:{mnt:02d}:{dtk:02d}"
-            win_rate    = Decimal(wins) / Decimal(ronde) * 100
-            bal_str     = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
-            ikon        = g(GREEN, "✅") if won else g(RED, "❌")
-            loss_color  = RED if total_loss > 0 else DIM
+            # ── Log setiap spin — durasi, kecepatan, ETA ─────────────────────
+            elapsed      = datetime.now() - sesi_mulai
+            elapsed_sek  = elapsed.total_seconds()
+            total_sec    = int(elapsed_sek)
+            jam, sisa    = divmod(total_sec, 3600)
+            mnt, dtk     = divmod(sisa, 60)
+            durasi_str   = f"{jam:02d}:{mnt:02d}:{dtk:02d}"
+            win_rate     = Decimal(wins) / Decimal(ronde) * 100
+            bal_str      = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
+            ikon         = g(GREEN, "✅") if won else g(RED, "❌")
+            loss_color   = RED if total_loss > 0 else DIM
+
+            # Hitung kecepatan (bet/menit) dan ETA ke Rp1 Juta wager
+            elapsed_mnt  = elapsed_sek / 60
+            bet_per_mnt  = ronde / elapsed_mnt if elapsed_mnt >= 0.05 else 0
+            TARGET_WAGER = Decimal("1000000")
+            sisa_wager   = TARGET_WAGER - total_volume
+            if bet_per_mnt > 0 and sisa_wager > 0:
+                sisa_bet_eta = float(sisa_wager) / float(base_bet)
+                eta_sek      = (sisa_bet_eta / bet_per_mnt) * 60
+                if eta_sek >= 3600:
+                    eta_str = f"{eta_sek/3600:.1f}j"
+                elif eta_sek >= 60:
+                    eta_str = f"{eta_sek/60:.0f}m"
+                else:
+                    eta_str = f"{eta_sek:.0f}d"
+                speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  ETA 1Jt: {g(CYAN, eta_str)}"
+            elif sisa_wager <= 0:
+                speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  {g(GREEN, '✅ 1Jt!')}"
+            else:
+                speed_str = f"-- b/m"
+
             print(
                 f"  {ikon} #{ronde}  │  "
                 f"Wager: {g(CYAN, fmt(total_volume, currency))}  │  "
@@ -663,22 +651,17 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 f"Loss: {g(loss_color, fmt(total_loss, currency))}  │  "
                 f"W/L: {g(GREEN, str(wins))}/{g(RED, str(losses))} "
                 f"{g(DIM, f'({win_rate:.1f}%)')}  │  "
+                f"{speed_str}  │  "
                 f"⏱ {g(DIM, durasi_str)}"
             )
 
-            # ── Notifikasi Telegram setiap Rp1 juta wager (NON-BLOCKING) ────
+            # ── Milestone setiap Rp1 juta wager ──────────────────────────────
             if total_volume >= next_million_notif:
                 next_million_notif += Decimal("1000000")
                 print(g(CYAN,
-                    f"\n  📈 Milestone {fmt(total_volume, currency)} wager tercapai!\n"
+                    f"\n  📈 Milestone {fmt(total_volume, currency)} wager tercapai! "
+                    f"({bet_per_mnt:.1f} b/m)\n"
                 ))
-                kirim_telegram(
-                    f"📈 <b>Wager {fmt(total_volume, currency)}</b>\n"
-                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
-                    f"Loss sesi: {fmt(total_loss, currency)}\n"
-                    f"Saldo: {bal_str}\n"
-                    f"⏱ Durasi: {durasi_str}"
-                )
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:
@@ -687,12 +670,6 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                     f"\n  🛑 Stop-loss {fmt(max_loss_limit, currency)} tercapai di bet #{ronde}. "
                     f"Istirahat {jeda} menit untuk mengamankan modal..."
                 ))
-                kirim_telegram(
-                    f"🛑 <b>STOP-LOSS</b>\n"
-                    f"Bet #{ronde} | Loss: {fmt(total_loss, currency)}\n"
-                    f"Wager sesi: {fmt(total_volume, currency)}\n"
-                    f"Istirahat {jeda} menit lalu lanjut otomatis."
-                )
                 rest_countdown(jeda)
                 break
 
@@ -700,15 +677,10 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             if total_volume >= next_rest_checkpoint:
                 next_rest_checkpoint += rest_setiap_volume
                 print(g(CYAN,
-                    f"\n  ✅ Checkpoint {fmt(total_volume, currency)} wager tercapai! "
-                    f"Istirahat {rest_menit_volume} menit..."
+                    f"\n  ✅ Checkpoint {fmt(total_volume, currency)} wager! "
+                    f"W/L: {wins}/{losses} ({win_rate:.1f}%) | {bet_per_mnt:.1f} b/m"
+                    f"\n  Istirahat {rest_menit_volume} menit..."
                 ))
-                kirim_telegram(
-                    f"✅ <b>CHECKPOINT</b> {fmt(total_volume, currency)}\n"
-                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
-                    f"Loss sesi: {fmt(total_loss, currency)}\n"
-                    f"Istirahat {rest_menit_volume} menit lalu lanjut otomatis."
-                )
                 rest_countdown(rest_menit_volume)
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
                 continue   # ← lanjut dalam sesi yang sama, bukan break
@@ -758,21 +730,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
   ║  🎉  SELAMAT! LEVEL VIP NAIK!           ║
   ║  {flag_before.upper():<10} → {flag_now.upper():<10}              ║
   ╚══════════════════════════════════════════╝"""))
-            kirim_telegram(
-                f"🎉 <b>VIP NAIK!</b>\n"
-                f"{flag_before.upper()} → {flag_now.upper()}\n"
-                f"Wager sesi ini: {fmt(total_volume, currency)}"
-            )
         else:
             gain = (prog_now - prog_before) * 100
             print(g(DIM, f"  Progress naik: +{gain:.2f}% dalam sesi ini"))
-            kirim_telegram(
-                f"📊 <b>Sesi Selesai</b>\n"
-                f"Bet: {total} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
-                f"Wager: {fmt(total_volume, currency)}\n"
-                f"Net: {('+' if net >= 0 else '') + fmt(net, currency)}\n"
-                f"VIP Progress: +{gain:.2f}%"
-            )
 
     except Exception:
         pass  # Jika gagal refresh, lanjut tanpa crash
@@ -930,15 +890,6 @@ def main():
         print()
         print(g(GREEN, f"  ✅ VPS Auto-Run aktif — istirahat {rest_menit} menit antar sesi"))
         print(g(DIM,   "  Script berjalan sampai Ctrl+C saat betting atau terjadi auth error.\n"))
-
-        waktu_start = datetime.now().strftime("%d/%m/%Y %H:%M")
-        kirim_telegram(
-            f"🤖 <b>BOT STARTED</b>\n"
-            f"VPS Auto-Run aktif — {waktu_start}\n"
-            f"Akun: {user.get('name', '?')}\n"
-            f"Base Bet: Rp 600 | Win Chance: 98%\n"
-            f"Stop-Loss: Rp 45.000 | Istirahat: {rest_menit} mnt/sesi"
-        )
 
         sesi_ke = 1
         while True:
