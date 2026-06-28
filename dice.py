@@ -30,7 +30,13 @@ API_URL = "https://stake.com/_api/graphql"
 HEADERS = {
     "Content-Type": "application/json",
     "x-access-token": API_KEY,
+    "Connection": "keep-alive",
 }
+
+# Session tunggal yang reuse koneksi TCP/TLS — menghilangkan overhead
+# handshake per bet (hemat ~1-3 dtk/bet dibanding requests.post() biasa)
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 
 MAX_CONSECUTIVE_ERRORS = 5  # Berhenti jika gagal N kali berturut-turut
 
@@ -159,7 +165,7 @@ def gql(query, variables=None):
     if variables:
         payload["variables"] = variables
     try:
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
+        resp = SESSION.post(API_URL, json=payload, timeout=30)
         resp.raise_for_status()
     except requests.exceptions.ConnectionError:
         raise Exception("Tidak dapat terhubung ke Stake.com. Periksa koneksi internet.")
@@ -550,7 +556,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
-    print(f"  Delay         : {g(DIM, 'random 0.15–0.4 detik (speed mode)')}")
+    print(f"  Delay         : {g(DIM, 'tanpa delay — API Stake sebagai natural throttle')}")
     print(f"  Log terminal  : {g(DIM, 'setiap spin (dengan durasi berjalan)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
@@ -707,8 +713,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
                 continue   # ← lanjut dalam sesi yang sama, bukan break
 
-            # ── Delay cepat (speed mode) ──────────────────────────────────────
-            time.sleep(random.uniform(0.15, 0.4))
+            # Tidak ada delay tambahan — API Stake sudah menjadi natural throttle.
+            # Setiap bet menunggu response API (rata-rata 1–16 dtk) sebelum
+            # bet berikutnya dikirim, sehingga delay buatan tidak diperlukan.
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
