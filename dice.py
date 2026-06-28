@@ -15,6 +15,7 @@ import uuid
 import time
 import random
 import csv
+import threading
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from datetime import datetime
@@ -34,22 +35,29 @@ HEADERS = {
 MAX_CONSECUTIVE_ERRORS = 5  # Berhenti jika gagal N kali berturut-turut
 
 
-def kirim_telegram(pesan: str):
-    """
-    Kirim notifikasi teks ke Telegram.
-    Butuh env vars: TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID.
-    Diam-diam (silent fail) jika token tidak diset — tidak crash script.
-    """
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+def _kirim_telegram_worker(pesan: str):
+    """Worker internal — jangan panggil langsung. Dijalankan di background thread."""
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={"chat_id": TELEGRAM_CHAT_ID, "text": pesan, "parse_mode": "HTML"},
-            timeout=10,
+            timeout=15,
         )
     except Exception:
         pass  # Notifikasi gagal tidak boleh menghentikan script
+
+
+def kirim_telegram(pesan: str):
+    """
+    Kirim notifikasi teks ke Telegram secara NON-BLOCKING (background thread).
+    Loop bet utama langsung lanjut tanpa menunggu respons server Telegram.
+    Butuh env vars: TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID.
+    Diam-diam (silent fail) jika token tidak diset.
+    """
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    t = threading.Thread(target=_kirim_telegram_worker, args=(pesan,), daemon=True)
+    t.start()
 
 # ─── Warna Terminal ────────────────────────────────────────────────────────────
 
@@ -489,7 +497,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
-    print(f"  Delay         : {g(DIM, 'random 0.2–0.8 detik (speed mode)')}")
+    print(f"  Delay         : {g(DIM, 'random 0.15–0.4 detik (speed mode)')}")
     print(f"  Log terminal  : {g(DIM, 'setiap spin (dengan durasi berjalan)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
@@ -599,21 +607,19 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 f"⏱ {g(DIM, durasi_str)}"
             )
 
-            # ── Notifikasi + istirahat 1 menit setiap Rp1 juta wager ────────
+            # ── Notifikasi Telegram setiap Rp1 juta wager (NON-BLOCKING) ────
             if total_volume >= next_million_notif:
                 next_million_notif += Decimal("1000000")
                 print(g(CYAN,
-                    f"\n  📈 Wager {fmt(total_volume, currency)} tercapai — istirahat 1 menit...\n"
+                    f"\n  📈 Milestone {fmt(total_volume, currency)} wager tercapai!\n"
                 ))
                 kirim_telegram(
                     f"📈 <b>Wager {fmt(total_volume, currency)}</b>\n"
                     f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
                     f"Loss sesi: {fmt(total_loss, currency)}\n"
                     f"Saldo: {bal_str}\n"
-                    f"⏱ Durasi: {durasi_str}\n"
-                    f"💤 Istirahat 1 menit lalu lanjut otomatis."
+                    f"⏱ Durasi: {durasi_str}"
                 )
-                rest_countdown(1)
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:
@@ -650,7 +656,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 continue   # ← lanjut, bukan break
 
             # ── Delay cepat (speed mode) ──────────────────────────────────────
-            time.sleep(random.uniform(0.2, 0.8))
+            time.sleep(random.uniform(0.15, 0.4))
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
