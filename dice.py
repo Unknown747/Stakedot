@@ -417,55 +417,6 @@ def print_summary(stats, currency):
 
 # ─── Strategy VIP ─────────────────────────────────────────────────────────────
 
-def human_delay(consecutive_loss: int = 0, ronde: int = 1):
-    """
-    Jeda yang menyerupai perilaku manusia nyata.
-
-    Lapisan jeda (dari yang paling sering ke paling jarang):
-      1. Normal (>90% bet)      : distribusi gaussian ~0.9 dtk, range 0.4–2.5 dtk
-      2. Micro-break (~7%)      : 4–18 detik  — seperti scroll feed, baca chat
-      3. Thinking pause (~3%)   : 2.5–6 detik — setelah kalah, manusia cenderung
-                                  "berpikir" sebelum bet berikutnya
-      4. Long break (~0.8%)     : 45–150 detik — toilet, ambil minuman, dll
-      5. Extra loss pause       : +0.5–2 dtk tambahan jika sedang kalah beruntun
-    """
-    roll = random.random()
-
-    if roll < 0.008:
-        # Long break — sangat jarang, seperti keluar sebentar
-        pause = random.uniform(45, 150)
-        print(g(DIM, f"  ☕ Istirahat sebentar... ({pause:.0f} dtk)"))
-        time.sleep(pause)
-        return
-
-    if roll < 0.038:
-        # Micro-break — scroll HP, baca chat, dsb
-        pause = random.uniform(4, 18)
-        time.sleep(pause)
-        return
-
-    if roll < 0.068:
-        # Thinking pause — manusia merenung setelah kalah
-        pause = random.uniform(2.5, 6.0)
-        time.sleep(pause)
-        return
-
-    # Normal bet — gaussian agar tidak metronomis
-    base = random.gauss(mu=0.9, sigma=0.35)
-    base = max(0.4, min(base, 2.5))  # Clamp agar tidak negatif / terlalu lama
-
-    # Extra pause jika sedang kalah beruntun (manusia frustrasi = lebih lambat)
-    if consecutive_loss >= 2:
-        extra = random.uniform(0.5, 2.0)
-        base += extra
-
-    # Kadang ketik sesuatu / klik hal lain sebelum bet (1 dari 12 ronde)
-    if ronde > 1 and ronde % random.randint(10, 15) == 0:
-        base += random.uniform(1.0, 3.5)
-
-    time.sleep(base)
-
-
 def rest_countdown(menit: int = 60):
     """
     Countdown istirahat antar sesi untuk VPS mode.
@@ -663,7 +614,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             if total_loss >= max_loss_limit:
                 jeda = random.randint(5, 10)
                 print(g(RED,
-                    f"\n  🛑 Stop-loss Rp 30.000 tercapai di bet #{ronde}. "
+                    f"\n  🛑 Stop-loss {fmt(max_loss_limit, currency)} tercapai di bet #{ronde}. "
                     f"Istirahat {jeda} menit untuk mengamankan modal..."
                 ))
                 kirim_telegram(
@@ -845,7 +796,7 @@ def main():
     # ── Pilih mode ────────────────────────────────────────────────────────────
     print_section("PILIH MODE")
     print(f"  {g(BOLD, '1.')} Dice Biasa       — atur sendiri currency, bet, target, dll")
-    print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 200/roll, stop-loss Rp 30rb")
+    print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 400/roll, stop-loss Rp 30rb")
     print(f"  {g(BOLD, '3.')} {g(CYAN, 'VPS Auto-Run')}    — seperti mode 2, tapi jalan terus 24/7 tanpa input")
     print(g(DIM, "             Mode 3 cocok untuk VPS/server — setiap sesi selesai"))
     print(g(DIM, "             otomatis istirahat lalu mulai sesi baru tanpa perlu diawasi."))
@@ -863,8 +814,8 @@ def main():
 
             try:
                 user = gql(USER_QUERY)["user"]
-            except Exception:
-                pass
+            except Exception as e:
+                print(g(YELLOW, f"  ⚠️  Gagal refresh data user: {e} — lanjut dengan data sesi sebelumnya."))
 
             lanjut = jalankan_strategy_vip(user=user)
             if not lanjut:
@@ -876,7 +827,7 @@ def main():
     # ── VPS Auto-Run: jalan 24/7, istirahat otomatis antar sesi ──────────────
     if mode_main == "3":
         print_section("VPS AUTO-RUN — KONFIGURASI")
-        print(g(DIM, "  Setiap sesi selesai (target 2 juta atau stop-loss), script akan"))
+        print(g(DIM, "  Setiap sesi selesai (stop-loss atau checkpoint 5 juta), script akan"))
         print(g(DIM, "  istirahat otomatis lalu mulai sesi baru. Ctrl+C saat istirahat = skip.\n"))
         print(g(DIM, "  Ctrl+C saat sedang betting = sesi berhenti & keluar program.\n"))
 
@@ -893,8 +844,8 @@ def main():
 
             try:
                 user = gql(USER_QUERY)["user"]
-            except Exception:
-                pass
+            except Exception as e:
+                print(g(YELLOW, f"  ⚠️  Gagal refresh data user: {e} — lanjut dengan data sesi sebelumnya."))
 
             lanjut = jalankan_strategy_vip(user=user, vps_mode=True)
             if not lanjut:
