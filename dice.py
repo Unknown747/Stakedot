@@ -685,9 +685,13 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
                 continue   # ← lanjut dalam sesi yang sama, bukan break
 
-            # Tidak ada delay tambahan — API Stake sudah menjadi natural throttle.
-            # Setiap bet menunggu response API (rata-rata 1–16 dtk) sebelum
-            # bet berikutnya dikirim, sehingga delay buatan tidak diperlukan.
+            # ── Auto-throttle: sisipkan sleep jika bot terlalu cepat ────────────
+            # Threshold: 30 b/m → sleep 1 dtk | >50 b/m → sleep 2 dtk
+            # Melindungi dari rate-limit Stake jika API tiba-tiba sangat responsif.
+            if bet_per_mnt > 50:
+                time.sleep(2)
+            elif bet_per_mnt > 30:
+                time.sleep(1)
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
