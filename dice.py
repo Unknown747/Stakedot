@@ -644,16 +644,25 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             else:
                 speed_str = f"-- b/m"
 
+            # Format IDR compact: 177187.74 → "177.188" (tanpa desimal, titik ribuan)
+            def _k(val):
+                try:
+                    return f"{int(round(float(to_dec(val)))):,}".replace(",", ".")
+                except Exception:
+                    return "N/A"
+
+            bal_k   = _k(bal_amount) if bal_amount is not None else "N/A"
+            loss_k  = _k(total_loss)
+
             print(
-                f"  {ikon} #{ronde}  │  "
-                f"Wager: {g(CYAN, fmt(total_volume, currency))}  │  "
-                f"Saldo: {g(CYAN, bal_str)}  │  "
-                f"Loss: {g(loss_color, fmt(total_loss, currency))}  │  "
-                f"W/L: {g(GREEN, str(wins))}/{g(RED, str(losses))} "
-                f"{g(DIM, f'({win_rate:.1f}%)')}  │  "
-                f"{speed_str}  │  "
-                f"⏱ {g(DIM, durasi_str)}"
+                f"  {ikon} #{ronde} · "
+                f"Wgr {g(CYAN, _k(total_volume))} · "
+                f"Sld {g(CYAN, bal_k)} · "
+                f"Loss {g(loss_color, loss_k)} · "
+                f"W/L {g(GREEN, str(wins))}/{g(RED, str(losses))} "
+                f"{g(DIM, f'({win_rate:.1f}%)')}"
             )
+            print(f"          {speed_str} · ⏱ {g(DIM, durasi_str)}")
 
             # ── Milestone setiap Rp1 juta wager ──────────────────────────────
             if total_volume >= next_million_notif:

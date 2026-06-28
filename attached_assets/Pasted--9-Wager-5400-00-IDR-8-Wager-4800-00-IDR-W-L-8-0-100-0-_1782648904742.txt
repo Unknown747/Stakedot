@@ -1,0 +1,385 @@
+#9 Wager: 5400.00 IDR
+
+#8 Wager: 4800.00 IDR W/L: 8/0 (100.0%) | b/m
+
+Loss: -48.96 IDR
+
+Saldo: 177089.78 IDR
+
+Saldo: 177095.90 IDR
+
+| Loss: -55.08 IDR
+
+W/L: 9/0 (100.0%) 167.2 b/#10 Wager: 6000.00 IDR
+
+m ETA 1Jt: 10m
+
+Saldo: 177102.02 IDR
+
+Loss: -61.20 ID
+
+R
+
+W/L: 10/0 (100.0%) 107.0
+
+b/m ETA 1Jt: 15m
+
+#11 Wager: 6600.00 IDR
+
+Saldo: 177108.15 IDR
+
+R
+
+W/L: 11/0 (100.0%) | 82.9 b/
+
+m ETA 1Jt: 20m
+
+Loss: -67.32 ID
+
+#12 Wager: 7200.00 IDR
+
+Saldo: 177114.27 IDR
+
+Loss: -73.44 ID
+
+R
+
+W/L: 12/0 (100.0%) 69.1 b
+
+/m ETA 1Jt: 24m
+
+#13 Wager: 7800.00 IDR
+
+Saldo: 177120.39 IDR
+
+Loss: -79.56 ID
+
+R
+
+W/L: 13/0 (100.0%) 58.9
+
+b/m ETA 1Jt: 28m
+
+00:00:13
+
+#14 Wager: 8400.00 IDR
+
+Saldo: 177126.51 IDR
+
+Loss: -85.68 ID
+
+R
+
+W/L: 14/0 (100.0%) 53.7 b
+
+/m ETA 1Jt: 31m
+
+00:00:15
+
+#15 Wager: 9000.00 IDR
+
+Saldo: 177132.64 IDR
+
+R
+
+W/L: 15/0 (100.0%) 50.1 b
+
+/m ETA 1Jt: 33m
+
+Loss: -91.80 ID
+
+00:00:17
+
+#16 Wager: 9600.00 IDR
+
+R
+
+Saldo: 177138.76 IDR
+
+W/L: 16/0 (100.0%) 47.3 b/m ETA 1Jt: 35m
+
+#17 Wager: 10200.00 IDR Saldo: 177144.88 IDR
+
+IDR W/L: 1770 (100.0%) 47.2 b/mETA 1Jt: 35m
+
+#18 Wager: 10800.00 IDR
+
+Saldo: 177151.00 IDR
+
+IDR W/L: 18/0 (100.0%) 46.9 b
+
+/m ETA 1Jt: 35m
+
+177157.13 IDR Saldo:
+
+#19 Wager: 11400.00 IDR
+
+IDR W/L: 19/0 (100.0%) 46.8 b
+
+/m ETA 1Jt: 35m
+
+177163.25 IDR Saldo:
+
+#20 Wager: 12000.00 IDR
+
+IDRW/L: 20/0 (100.0%) 46.7
+
+b/m ETA 1Jt: 35m
+
+# 21 Wager: 12600.00 IDR
+
+Saldo: 177169.37 IDR
+
+IDR W/L: 21/0 (100.0%) 46.6
+
+b/m ETA 1Jt: 35m
+
+#22 Wager: 13200.00 IDR Saldo: 177175.49 IDR
+
+IDR W/L: 22/0 (100.0%) 46.5 b/m ETA 1Jt: 35m
+
+177181.62 IDR Saldo:
+
+#23 Wager: 13800.00 IDR
+
+IDR W/L: 23/0 (100.0%) 46.4 b
+
+/m ETA 1Jt: 35m
+
+Loss: -97.92 ID
+
+Loss: -104.04
+
+00:00:21
+
+Loss: 110.16
+
+00:00:23
+
+Loss: -116.28
+
+00:00:24
+
+Loss: -122.40
+
+00:00:25
+
+Loss: -128.52
+
+00:00:27
+
+Loss: -134.64
+
+00:00:28
+
+Loss: -140.76
+
+00:00:29
+
+Loss: -146.88
+
+#24 Wager: 14400.00 IDR
+
+Saldo: 177187.74 IDR
+
+IDR W/L: 24/0 (100.0%) 46.4
+
+b/m ETA 1Jt:
+
+35m00:00:31
+
+#25 Wager: 15000.00 IDR
+
+Saldo: 177193.86 IDR
+
+IDR W/L: 25/0 (100.0%) 46.2
+
+b/m ETA 1Jt:
+
+36m00:00:32
+
+#26 Wager: 15600.00 IDR
+
+Saldo: 177199.98 IDR
+
+IDR W/L: 26/0 (100.0%) 46.1 b
+
+/m ETA 1Jt: 36m
+
+177206.11 IDR Saldo:
+
+Loss: 153.00
+
+Loss: -159.12
+
+00:00:33
+
+#27 Wager: 16200.00 IDR IDR W/L: 27/0 (100.0%) 46.1
+
+Loss: -165.24
+
+#28 Wager: 16800.00 IDR
+
+Saldo: 177212.23 IDR
+
+IDR W/L: 28/0 (100.0%) | 46.0 b
+
+/m ETA 1Jt: 36m
+
+#29 Wager: 17400.00 IDR
+
+Saldo: 177218.35 IDR
+
+Loss: 171.36
+
+00:00:36
+
+Loss: -177.48
+
+IDR W/L: 29/0 (100.0%) 46.0 b/m ETA 1Jt:
+
+36m00:00:37
+
+177224.47 IDR Saldo:
+
+ETA 1Jt: 36m IDR W/L: 30/0 (100.0%) 46.0 b/m
+
+Loss: -183.60
+
+00:00:39
+
+b/m ETA 1Jt:
+
+36m00:00:35
+
+#30 Wager: 18000.00 IDR
+
+^[[A^[[A^[[A^[[A^[[A^[[A^[[A #31
+
+Wager: 18600.00 IDR
+
+Saldo: 1772
+
+30.60 IDR Loss: 189.72 IDR W/L: 1Jt: 37m
+
+3170 (100.0%)
+
+#32
+
+00:00:41
+
+44.7 b/m | ΕΤΑ
+
+Wager: 19200.00 IDR
+
+Saldo: 177236.72 IDR
+
+Loss: -195.84
+
+IDR W/L: #33
+
+32/0 (100.0%) 44.7 b
+
+/m | ETA 1Jt:
+
+37m00:00:42
+
+Wager: 19800.00 IDR
+
+Saldo: 177242.84 IDR
+
+Loss: -201.96
+
+IDR W/L: 33/0 (100.0%)
+
+44.7 b/mETA 1Jt:
+
+37m00:00:44
+
+#34 Wager: 20400.00 IDR
+
+Saldo: 177248.96 IDR
+
+b/m ETA 1Jt: 37m
+
+Loss: -208.08
+
+00:00:45
+
+177255.09 IDR Saldo:
+
+Loss: -214.20
+
+b/m ETA 1Jt: 37m00:00:47
+
+IDR W/L: 34/0 (100.0%) 44.7
+
+#35 Wager: 21000.00 IDR
+
+IDR W/L: 35/0 (100.0%) 44.7 #36 Wager: 21600.00 IDR
+
+Saldo: 177261.21 IDR
+
+Loss: 220.32
+
+IDR W/L: 36/9 (100.0%) 44.6
+
+b/mETA 1Jt:
+
+37m00:00:48
+
+X #37 Wager: 22200.00 IDR
+
+Saldo: 176661.21 IDR
+
+Loss: 379.68 1
+
+DR W/L:
+
+36/1 (97.3%) 44.6 b/
+
+mETA 1Jt: 36m
+
+00:00:49
+
+#38 DRW/L:
+
+Wager: 22800.00 IDR
+
+Saldo: 176667.33 IDR
+
+Loss: 373.56 1
+
+37/ (97.4%) 44.7 b/
+
+mETA 1Jt: 36m00
+
+:00:51
+
+DR
+
+DR
+
+#39 Wager: 23400.00 IDR
+
+Saldo: 176673.45 IDR
+
+Loss: 367.44 1
+
+W/L:
+
+38/1 (97.4%) 44.7 b/
+
+m ETA 1Jt:
+
+36m00:00:52
+
+#40 Wager: 24000.00 IDR W/L: 39/1 (97.5%) 44.7 b/m
+
+Saldo: 176679.58 IDR
+
+Loss: 361.32 1
+
+ETA 1Jt: 36m
+
+00:00:53
