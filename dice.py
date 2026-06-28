@@ -693,20 +693,19 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             # ── Cek checkpoint volume → istirahat 15 menit lalu lanjut ───────
             if total_volume >= next_rest_checkpoint:
                 next_rest_checkpoint += rest_setiap_volume
-                win_rate_now = Decimal(wins) / Decimal(ronde) * 100 if ronde > 0 else Decimal("0")
                 print(g(CYAN,
                     f"\n  ✅ Checkpoint {fmt(total_volume, currency)} wager tercapai! "
                     f"Istirahat {rest_menit_volume} menit..."
                 ))
                 kirim_telegram(
                     f"✅ <b>CHECKPOINT</b> {fmt(total_volume, currency)}\n"
-                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate_now:.1f}%)\n"
+                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
                     f"Loss sesi: {fmt(total_loss, currency)}\n"
                     f"Istirahat {rest_menit_volume} menit lalu lanjut otomatis."
                 )
                 rest_countdown(rest_menit_volume)
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
-                continue   # ← lanjut, bukan break
+                continue   # ← lanjut dalam sesi yang sama, bukan break
 
             # ── Delay cepat (speed mode) ──────────────────────────────────────
             time.sleep(random.uniform(0.15, 0.4))
@@ -733,13 +732,13 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  {g(CYAN, '─' * 52)}")
 
     # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
-    flag_before = flag_progress.get("flag", "none")
-    prog_before = float(flag_progress.get("progress", 0))
+    flag_before = flag_progress.get("flag") or "none"
+    prog_before = float(flag_progress.get("progress") or 0)   # guard: API bisa kirim null
     try:
         fresh_user   = gql(USER_QUERY)["user"]
         flag_after   = fresh_user.get("flagProgress") or {"flag": "none", "progress": 0}
-        flag_now     = flag_after.get("flag", "none")
-        prog_now     = float(flag_after.get("progress", 0))
+        flag_now     = flag_after.get("flag") or "none"
+        prog_now     = float(flag_after.get("progress") or 0)  # guard: API bisa kirim null
 
         print()
         print(g(BOLD, "  📊 VIP Progress setelah sesi:"))
@@ -848,7 +847,9 @@ def main():
                 total_net   = sum(Decimal(r["net_idr"])    for r in rows)
                 total_ronde = sum(int(r["ronde"])          for r in rows)
                 last        = rows[-1]
-                n_arsip     = len(semua_file) - 1   # jumlah file arsip
+                # Hitung arsip secara eksplisit — jangan kurangi 1 karena
+                # log_sesi.csv mungkin tidak ada (habis dirotasi)
+                n_arsip = len([f for f in semua_file if f != CSV_LOG])
 
                 print_section("STATISTIK KUMULATIF SEMUA SESI")
                 print(f"  Total sesi      : {g(BOLD, str(total_sesi))}"
@@ -948,6 +949,9 @@ def main():
                 break
 
             sesi_ke += 1
+            # Catatan: jika sesi berakhir karena stop-loss, sudah ada rest
+            # 5–10 menit di dalam sesi + 15 menit ini = total ~20–25 menit.
+            # Ini disengaja: cooldown ekstra setelah sesi merugi.
             rest_countdown(rest_menit)
 
         return
