@@ -509,7 +509,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
       - Setiap Rp 5.000.000 wager kumulatif → istirahat 15 menit, lanjut otomatis
       - Stop-loss Rp 30.000 → istirahat 5–10 menit, lanjut sesi baru
 
-    Log terminal setiap 50 bet (bukan setiap bet) agar tidak banjir output di VPS.
+    Log terminal setiap spin: nomor bet, wager, saldo, loss, W/L, dan durasi bot berjalan.
 
     Returns True jika ingin lanjut sesi baru, False jika user Ctrl+C.
     """
@@ -539,7 +539,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
     print(f"  Delay         : {g(DIM, 'random 0.2–0.8 detik (speed mode)')}")
-    print(f"  Log terminal  : {g(DIM, 'setiap 50 bet')}")
+    print(f"  Log terminal  : {g(DIM, 'setiap spin (dengan durasi berjalan)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
     # ── State tracker ────────────────────────────────────────────────────────
@@ -550,8 +550,10 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     consecutive_err      = 0
     ronde                = 0
     stopped_by_user      = False
-    next_rest_checkpoint = rest_setiap_volume  # Checkpoint volume berikutnya
-    _topup_notified      = False               # Agar alert top-up hanya kirim sekali per sesi
+    next_rest_checkpoint = rest_setiap_volume     # Checkpoint volume berikutnya
+    next_million_notif   = Decimal("1000000")     # Notifikasi Telegram tiap Rp1 juta wager
+    _topup_notified      = False                  # Agar alert top-up hanya kirim sekali per sesi
+    sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
 
     try:
         while True:
@@ -626,18 +628,35 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                     f"Segera top up agar bot tidak berhenti."
                 )
 
-            # ── Log setiap 50 bet ─────────────────────────────────────────────
-            if ronde % 50 == 0:
-                win_rate   = Decimal(wins) / Decimal(ronde) * 100
-                bal_str    = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
-                loss_color = RED if total_loss > 0 else DIM
-                print(
-                    f"  {g(CYAN, '[INFO]')} Bet #{ronde}  │  "
-                    f"Wager: {g(CYAN, fmt(total_volume, currency))}  │  "
-                    f"Loss: {g(loss_color, fmt(total_loss, currency))}  │  "
-                    f"Saldo: {g(CYAN, bal_str)}  │  "
-                    f"W/L: {g(GREEN, str(wins))}/{g(RED, str(losses))} "
-                    f"{g(DIM, f'({win_rate:.1f}%)')}"
+            # ── Log setiap spin — termasuk durasi bot berjalan ────────────────
+            elapsed     = datetime.now() - sesi_mulai
+            total_sec   = int(elapsed.total_seconds())
+            jam, sisa   = divmod(total_sec, 3600)
+            mnt, dtk    = divmod(sisa, 60)
+            durasi_str  = f"{jam:02d}:{mnt:02d}:{dtk:02d}"
+            win_rate    = Decimal(wins) / Decimal(ronde) * 100
+            bal_str     = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
+            ikon        = g(GREEN, "✅") if won else g(RED, "❌")
+            loss_color  = RED if total_loss > 0 else DIM
+            print(
+                f"  {ikon} #{ronde}  │  "
+                f"Wager: {g(CYAN, fmt(total_volume, currency))}  │  "
+                f"Saldo: {g(CYAN, bal_str)}  │  "
+                f"Loss: {g(loss_color, fmt(total_loss, currency))}  │  "
+                f"W/L: {g(GREEN, str(wins))}/{g(RED, str(losses))} "
+                f"{g(DIM, f'({win_rate:.1f}%)')}  │  "
+                f"⏱ {g(DIM, durasi_str)}"
+            )
+
+            # ── Notifikasi Telegram setiap Rp1 juta wager ────────────────────
+            if total_volume >= next_million_notif:
+                next_million_notif += Decimal("1000000")
+                kirim_telegram(
+                    f"📈 <b>Wager {fmt(total_volume, currency)}</b>\n"
+                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
+                    f"Loss sesi: {fmt(total_loss, currency)}\n"
+                    f"Saldo: {bal_str}\n"
+                    f"⏱ Durasi: {durasi_str}"
                 )
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
