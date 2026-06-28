@@ -599,16 +599,21 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 f"⏱ {g(DIM, durasi_str)}"
             )
 
-            # ── Notifikasi Telegram setiap Rp1 juta wager ────────────────────
+            # ── Notifikasi + istirahat 1 menit setiap Rp1 juta wager ────────
             if total_volume >= next_million_notif:
                 next_million_notif += Decimal("1000000")
+                print(g(CYAN,
+                    f"\n  📈 Wager {fmt(total_volume, currency)} tercapai — istirahat 1 menit...\n"
+                ))
                 kirim_telegram(
                     f"📈 <b>Wager {fmt(total_volume, currency)}</b>\n"
                     f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
                     f"Loss sesi: {fmt(total_loss, currency)}\n"
                     f"Saldo: {bal_str}\n"
-                    f"⏱ Durasi: {durasi_str}"
+                    f"⏱ Durasi: {durasi_str}\n"
+                    f"💤 Istirahat 1 menit lalu lanjut otomatis."
                 )
+                rest_countdown(1)
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:
@@ -831,7 +836,7 @@ def main():
         print(g(DIM, "  istirahat otomatis lalu mulai sesi baru. Ctrl+C saat istirahat = skip.\n"))
         print(g(DIM, "  Ctrl+C saat sedang betting = sesi berhenti & keluar program.\n"))
 
-        rest_menit = 60
+        rest_menit = 15
 
         print()
         print(g(GREEN, f"  ✅ VPS Auto-Run aktif — istirahat {rest_menit} menit antar sesi"))
