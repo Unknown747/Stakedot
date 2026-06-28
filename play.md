@@ -5,12 +5,11 @@
 ## 📋 Daftar Isi
 1. [Konfigurasi Cepat (Edit di Sini)](#1-konfigurasi-cepat-edit-di-sini)
 2. [Setup API Key Stake.com](#2-setup-api-key-stakecom)
-3. [Setup Notifikasi Telegram](#3-setup-notifikasi-telegram)
-4. [Instalasi & Menjalankan](#4-instalasi--menjalankan)
-5. [Panduan Menu (Mode 1 / 2 / 3)](#5-panduan-menu-mode-1--2--3)
-6. [Deploy di VPS](#6-deploy-di-vps)
-7. [Perkiraan Kecepatan & Target VIP](#7-perkiraan-kecepatan--target-vip)
-8. [Struktur File](#8-struktur-file)
+3. [Instalasi & Menjalankan](#3-instalasi--menjalankan)
+4. [Panduan Menu (Mode 1 / 2 / 3)](#4-panduan-menu-mode-1--2--3)
+5. [Deploy di VPS](#5-deploy-di-vps)
+6. [Perkiraan Kecepatan & Target VIP](#6-perkiraan-kecepatan--target-vip)
+7. [Struktur File](#7-struktur-file)
 
 ---
 
@@ -23,9 +22,9 @@ Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `j
 currency            = "idr"
 base_bet            = Decimal("600")       # ← UBAH NILAI BET (Rp 400 / 600 / 800 / 1000)
 rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
-rest_menit_volume   = 15                   # ← Durasi istirahat volume checkpoint (menit)
+rest_menit_volume   = 15                   # ← Durasi istirahat checkpoint (menit)
 max_loss_limit      = Decimal("45000")     # ← Stop-loss: berhenti jika loss ≥ X (default 45 ribu)
-topup_alert_idr     = Decimal("75000")     # ← Kirim alert Telegram jika saldo < X (default 75 ribu)
+topup_alert_idr     = Decimal("75000")     # ← Warning terminal jika saldo < X (default 75 ribu)
 ```
 
 **Contoh ubah bet ke Rp 500:**
@@ -80,42 +79,10 @@ export STAKE_API_KEY="api_key_kamu"
 ```
 STAKE_API_KEY=api_key_kamu
 ```
-> `python-dotenv` tidak wajib diinstall. Jika tidak ada, pakai cara export di atas.
 
 ---
 
-## 3. Setup Notifikasi Telegram
-
-Bot otomatis kirim notifikasi ke HP kamu saat:
-- ✅ Checkpoint wager tercapai (tiap 5 juta)
-- 🛑 Stop-loss terpicu
-- 🎉 Level VIP naik
-- 📊 Ringkasan setiap sesi selesai
-
-### Langkah setup:
-
-**Step 1 — Buat Bot Telegram:**
-1. Buka Telegram → cari **@BotFather**
-2. Kirim `/newbot`
-3. Ikuti instruksi → salin **Bot Token** (format: `123456:ABCdef...`)
-
-**Step 2 — Dapatkan Chat ID:**
-1. Kirim pesan apa saja ke bot kamu
-2. Buka browser: `https://api.telegram.org/bot<TOKEN>/getUpdates`
-3. Cari `"chat":{"id":` → salin angkanya (contoh: `987654321`)
-
-**Step 3 — Set environment variable:**
-```bash
-echo 'export TELEGRAM_BOT_TOKEN="token_kamu"' >> ~/.bashrc
-echo 'export TELEGRAM_CHAT_ID="chat_id_kamu"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-> Jika `TELEGRAM_BOT_TOKEN` tidak diset, script tetap berjalan normal — notifikasi hanya di-skip diam-diam.
-
----
-
-## 4. Instalasi & Menjalankan
+## 3. Instalasi & Menjalankan
 
 ### Instalasi (VPS Ubuntu)
 ```bash
@@ -134,7 +101,7 @@ python3 dice.py
 
 ---
 
-## 5. Panduan Menu (Mode 1 / 2 / 3)
+## 4. Panduan Menu (Mode 1 / 2 / 3)
 
 ```
   1. Dice Biasa       — atur sendiri currency, bet, target, dll
@@ -174,18 +141,23 @@ Auto-bet langsung jalan:
 | Base Bet | **Rp 600** (ubah di variabel `base_bet`) |
 | Win Chance | 98% |
 | Multiplier | ~1.0102x |
-| Delay antar bet | 0.2 – 0.8 detik (speed mode) |
-| Log terminal | Setiap spin (✅/❌ + durasi berjalan) |
+| Delay antar bet | Tidak ada — API Stake jadi natural throttle |
+| Auto-throttle | Sleep otomatis jika >30 b/m (proteksi rate-limit) |
+| Log terminal | Setiap spin: ✅/❌, wager, saldo, W/L, **kecepatan (b/m)**, **ETA ke 1 Juta** |
 | Istirahat checkpoint | Setiap Rp 5.000.000 wager → 15 menit, lanjut otomatis |
 | Stop-loss | Loss ≥ Rp 45.000 → istirahat 5–10 menit, lanjut sesi baru |
-| **Top-Up Alert** | **Saldo < Rp 75.000 → notif Telegram (sekali per sesi)** |
-| Notifikasi | Telegram (jika disetup) |
+| Top-Up Alert | Saldo < Rp 75.000 → peringatan di terminal (sekali per sesi) |
+| Log file | Setiap spin disimpan ke `log_sesi.csv` (max 500 baris, rotasi otomatis) |
+
+**Contoh tampilan log terminal:**
+```
+✅ #24  │  Wager: 14.400  │  Saldo: 177.880  │  Loss: -147  │  W/L: 24/0 (100.0%)  │  6.3 b/m  │  ETA 1Jt: 158m  │  ⏱ 00:03:47
+```
 
 Fitur otomatis:
 - VIP status + progress bar sebelum sesi
 - VIP progress di-refresh setelah sesi
-- Alert + notifikasi Telegram jika level VIP naik
-- Log sesi disimpan ke `log_sesi.csv`
+- Alert terminal jika level VIP naik
 - Setelah tiap sesi: tanya y/n untuk sesi baru
 
 ---
@@ -206,7 +178,7 @@ Seperti Mode 2 tapi **jalan sepenuhnya otomatis tanpa input**:
 
 ---
 
-## 6. Deploy di VPS
+## 5. Deploy di VPS
 
 ### Setup otomatis (1 perintah):
 ```bash
@@ -221,11 +193,6 @@ pip3 install requests
 
 # Set API key permanen
 echo 'export STAKE_API_KEY="api_key_kamu"' >> ~/.bashrc
-
-# Opsional: Telegram
-echo 'export TELEGRAM_BOT_TOKEN="token_kamu"' >> ~/.bashrc
-echo 'export TELEGRAM_CHAT_ID="chat_id_kamu"' >> ~/.bashrc
-
 source ~/.bashrc
 ```
 
@@ -249,41 +216,54 @@ Ctrl+A lalu D            # detach (biarkan jalan di background)
 
 ---
 
-## 7. Perkiraan Kecepatan & Target VIP
+## 6. Perkiraan Kecepatan & Target VIP
 
-### Dengan Base Bet Rp 600, delay 0.2–0.8 detik:
+### Kecepatan nyata (tanpa delay buatan, API Stake sebagai throttle):
+
+| Kondisi API | Kecepatan |
+|---|---|
+| API cepat (1–2 dtk/resp) | ~25–30 b/m *(auto-throttle aktif)* |
+| API normal (5–10 dtk/resp) | ~6–12 b/m |
+| API lambat (>10 dtk/resp) | ~4–6 b/m |
+| **Rata-rata nyata** | **~6–10 b/m** |
+
+### Dengan Base Bet Rp 600, rata-rata 8 b/m:
 
 | Metrik | Estimasi |
 |---|---|
-| Kecepatan | ~118 bet/menit |
-| Volume per jam | ~Rp 4.200.000 |
-| Checkpoint 5 juta | tercapai dalam ~1 jam 10 menit |
+| Volume per jam | ~Rp 288.000 |
+| Checkpoint 5 juta | tercapai dalam ~17 jam |
 | Stop-loss Rp 45.000 | terpicu rata-rata setiap ~6.600 bet |
+
+> **Catatan:** Kecepatan sebenarnya ditentukan oleh response time server Stake, bukan script.
+> ETA ke Rp 1 Juta wager tampil langsung di log terminal setiap spin.
 
 ### Target VIP Silver (sisa ~$10.500 ≈ Rp 168 juta wager):
 
-| Base Bet | Volume/jam | Estimasi total waktu |
+| Base Bet | Volume/jam (est.) | Estimasi total waktu |
 |---|---|---|
-| Rp 400 | ~Rp 2.800.000 | ~60 jam |
-| **Rp 600** | **~Rp 4.200.000** | **~40 jam** |
-| Rp 800 | ~Rp 5.600.000 | ~30 jam |
+| Rp 400 | ~Rp 192.000 | ~875 jam |
+| **Rp 600** | **~Rp 288.000** | **~583 jam** |
+| Rp 800 | ~Rp 384.000 | ~438 jam |
 
 > House edge 1% — expected loss per Rp 100.000 modal ≈ Rp 1.000 per sesi.  
 > Script berhenti otomatis jika loss ≥ Rp 45.000 dari saldo awal.
 
 ---
 
-## 8. Struktur File
+## 7. Struktur File
 
 ```
 /
-├── dice.py          ← Script utama (edit variabel di jalankan_strategy_vip)
-├── test_audit.py    ← Audit & test semua komponen
-├── setup.sh         ← Setup otomatis di VPS Ubuntu
-├── play.md          ← Panduan ini
-├── requirements.txt ← Dependensi Python
-├── .gitignore       ← File yang dikecualikan dari git
-└── log_sesi.csv     ← Log otomatis setiap sesi (dibuat saat pertama run)
+├── dice.py              ← Script utama (edit variabel di jalankan_strategy_vip)
+├── test_audit.py        ← Audit & test semua komponen
+├── setup.sh             ← Setup otomatis di VPS Ubuntu
+├── play.md              ← Panduan ini
+├── requirements.txt     ← Dependensi Python
+├── .gitignore           ← File yang dikecualikan dari git
+├── log_sesi.csv         ← Log aktif sesi berjalan (max 500 baris)
+└── log_arsip/           ← Arsip log lama (max 10 file, rotasi otomatis)
+    └── log_sesi_YYYYMMDD_HHMMSS.csv
 ```
 
 ---
