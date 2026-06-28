@@ -861,19 +861,7 @@ def main():
         print(g(DIM, "  istirahat otomatis lalu mulai sesi baru. Ctrl+C saat istirahat = skip.\n"))
         print(g(DIM, "  Ctrl+C saat sedang betting = sesi berhenti & keluar program.\n"))
 
-        def val_menit(s):
-            try:
-                v = int(s)
-                return v if 1 <= v <= 480 else None
-            except ValueError:
-                return None
-
-        rest_menit = ask(
-            "Durasi istirahat antar sesi dalam menit (default 60): ",
-            validator=val_menit,
-            default="60",
-        )
-        rest_menit = int(rest_menit)
+        rest_menit = 60
 
         print()
         print(g(GREEN, f"  ✅ VPS Auto-Run aktif — istirahat {rest_menit} menit antar sesi"))
