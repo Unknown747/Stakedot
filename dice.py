@@ -318,7 +318,62 @@ def val_float_nonneg_or_empty(s):
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
 
-CSV_LOG = "log_sesi.csv"   # File log sesi otomatis
+CSV_LOG          = "log_sesi.csv"   # File log aktif
+CSV_LOG_MAX_ROWS = 500              # Baris maks sebelum rotasi
+CSV_LOG_MAX_ARSIP = 10             # Jumlah arsip lama yang disimpan
+CSV_LOG_ARSIP_DIR = "log_arsip"    # Folder tempat arsip disimpan
+
+CSV_FIELDNAMES = [
+    "tanggal", "ronde", "volume_idr", "loss_idr",
+    "win_rate_pct", "net_idr", "vip_flag", "vip_progress_pct",
+]
+
+
+def rotasi_log_csv():
+    """
+    Periksa jumlah baris log_sesi.csv.
+    Jika sudah mencapai CSV_LOG_MAX_ROWS:
+      1. Pindahkan file aktif ke folder log_arsip/ dengan nama bertimestamp.
+      2. Hapus arsip terlama jika jumlah arsip melebihi CSV_LOG_MAX_ARSIP.
+    Dipanggil otomatis sebelum setiap penulisan sesi baru.
+    """
+    if not os.path.exists(CSV_LOG):
+        return
+
+    try:
+        with open(CSV_LOG, newline="", encoding="utf-8") as f:
+            baris = sum(1 for _ in f) - 1   # kurangi 1 untuk header
+    except Exception:
+        return
+
+    if baris < CSV_LOG_MAX_ROWS:
+        return
+
+    os.makedirs(CSV_LOG_ARSIP_DIR, exist_ok=True)
+    stempel = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nama_arsip = os.path.join(CSV_LOG_ARSIP_DIR, f"log_sesi_{stempel}.csv")
+
+    try:
+        os.rename(CSV_LOG, nama_arsip)
+        print(g(CYAN,
+            f"\n  🗂  Log dirotasi → {nama_arsip} ({baris} baris)"
+        ))
+    except Exception as e:
+        print(g(YELLOW, f"  ⚠️  Gagal rotasi log: {e}"))
+        return
+
+    try:
+        arsip_list = sorted([
+            os.path.join(CSV_LOG_ARSIP_DIR, f)
+            for f in os.listdir(CSV_LOG_ARSIP_DIR)
+            if f.startswith("log_sesi_") and f.endswith(".csv")
+        ])
+        while len(arsip_list) > CSV_LOG_MAX_ARSIP:
+            hapus = arsip_list.pop(0)
+            os.remove(hapus)
+            print(g(DIM, f"  🗑  Arsip lama dihapus: {hapus}"))
+    except Exception:
+        pass
 
 
 def print_vip_status(flag_progress: dict):
@@ -364,17 +419,15 @@ def print_vip_status(flag_progress: dict):
 def simpan_log_csv(sesi: dict):
     """
     Simpan ringkasan satu sesi ke file log_sesi.csv.
-    Kolom: tanggal, ronde, volume_idr, loss_idr, win_rate_pct, net_idr, vip_flag, vip_progress_pct
+    Rotasi otomatis jika baris sudah mencapai CSV_LOG_MAX_ROWS.
     File dibuat otomatis jika belum ada, header ditulis sekali.
     """
+    rotasi_log_csv()   # Cek & rotasi dulu sebelum tulis
     file_baru = not os.path.exists(CSV_LOG)
     with open(CSV_LOG, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "tanggal", "ronde", "volume_idr", "loss_idr",
-            "win_rate_pct", "net_idr", "vip_flag", "vip_progress_pct",
-        ])
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
         if file_baru:
-            writer.writeheader()   # Tulis header hanya jika file baru
+            writer.writeheader()
         writer.writerow(sesi)
 
 
@@ -768,19 +821,38 @@ def main():
 
     print(g(GREEN, f"✅ Login sebagai: {g(BOLD, user['name'])}"))
 
-    # ── Statistik kumulatif dari CSV ──────────────────────────────────────────
-    if os.path.exists(CSV_LOG):
-        try:
-            with open(CSV_LOG, newline="", encoding="utf-8") as f:
-                rows = list(csv.DictReader(f))
+    # ── Statistik kumulatif dari CSV (aktif + semua arsip) ────────────────────
+    try:
+        semua_file = []
+        if os.path.exists(CSV_LOG):
+            semua_file.append(CSV_LOG)
+        if os.path.isdir(CSV_LOG_ARSIP_DIR):
+            semua_file += sorted([
+                os.path.join(CSV_LOG_ARSIP_DIR, f)
+                for f in os.listdir(CSV_LOG_ARSIP_DIR)
+                if f.startswith("log_sesi_") and f.endswith(".csv")
+            ])
+
+        if semua_file:
+            rows = []
+            for path in semua_file:
+                try:
+                    with open(path, newline="", encoding="utf-8") as f:
+                        rows.extend(list(csv.DictReader(f)))
+                except Exception:
+                    pass
+
             if rows:
-                total_sesi    = len(rows)
-                total_vol     = sum(Decimal(r["volume_idr"])  for r in rows)
-                total_net     = sum(Decimal(r["net_idr"])     for r in rows)
-                total_ronde   = sum(int(r["ronde"])           for r in rows)
-                last          = rows[-1]
+                total_sesi  = len(rows)
+                total_vol   = sum(Decimal(r["volume_idr"]) for r in rows)
+                total_net   = sum(Decimal(r["net_idr"])    for r in rows)
+                total_ronde = sum(int(r["ronde"])          for r in rows)
+                last        = rows[-1]
+                n_arsip     = len(semua_file) - 1   # jumlah file arsip
+
                 print_section("STATISTIK KUMULATIF SEMUA SESI")
-                print(f"  Total sesi      : {g(BOLD, str(total_sesi))}")
+                print(f"  Total sesi      : {g(BOLD, str(total_sesi))}"
+                      + (g(DIM, f"  ({n_arsip} file arsip)") if n_arsip > 0 else ""))
                 print(f"  Total ronde     : {g(BOLD, str(total_ronde))}")
                 print(f"  Total volume    : {g(CYAN, fmt(total_vol, 'idr'))}")
                 net_c = GREEN if total_net >= 0 else RED
@@ -788,8 +860,11 @@ def main():
                 print(f"  Total net P/L   : {g(net_c, net_s + fmt(total_net, 'idr'))}")
                 print(f"  Sesi terakhir   : {g(DIM, last['tanggal'])} "
                       f"— VIP {last['vip_flag'].upper()} {last['vip_progress_pct']}%")
-        except Exception:
-            pass  # Jika CSV rusak, lanjut tanpa crash
+                if n_arsip > 0:
+                    print(f"  Log arsip       : {g(DIM, CSV_LOG_ARSIP_DIR + '/')} "
+                          f"{g(DIM, f'({n_arsip}/{CSV_LOG_MAX_ARSIP} file)')}")
+    except Exception:
+        pass  # Jika CSV rusak, lanjut tanpa crash
 
     # Tampilkan saldo
     print_section("SALDO AKUN")
