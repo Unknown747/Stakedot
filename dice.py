@@ -159,7 +159,7 @@ def gql(query, variables=None):
     if variables:
         payload["variables"] = variables
     try:
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=15)
+        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
         resp.raise_for_status()
     except requests.exceptions.ConnectionError:
         raise Exception("Tidak dapat terhubung ke Stake.com. Periksa koneksi internet.")
