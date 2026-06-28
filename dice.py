@@ -1151,4 +1151,31 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    RESTART_DELAY = 60  # detik tunggu sebelum restart setelah crash tak terduga
+    while True:
+        try:
+            main()
+            break  # main() selesai normal (user keluar) — tidak perlu restart
+        except SystemExit:
+            break  # sys.exit() dipanggil — keluar bersih
+        except KeyboardInterrupt:
+            print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
+            break
+        except PermissionError as e:
+            # Auth error: API Key tidak valid — restart tidak akan membantu
+            print(g(RED, f"\n  ❌ Auth error fatal: {e}"))
+            print(g(RED, "  Script dihentikan — perbarui STAKE_API_KEY lalu jalankan ulang."))
+            break
+        except Exception as e:
+            print(g(RED, f"\n  💥 Bot crash tak terduga: {e}"))
+            print(g(YELLOW,
+                f"  🔄 Auto-restart dalam {RESTART_DELAY} detik... "
+                f"(Ctrl+C untuk batalkan)"
+            ))
+            try:
+                time.sleep(RESTART_DELAY)
+            except KeyboardInterrupt:
+                print(g(YELLOW, "\n  ⏹  Restart dibatalkan."))
+                break
+            print(g(CYAN, "\n  ▶  Memulai ulang bot...\n"))
+            # lanjut iterasi while → main() dipanggil lagi
