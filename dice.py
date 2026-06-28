@@ -44,7 +44,6 @@ BOLD   = "\033[1m"
 GREEN  = "\033[92m"
 RED    = "\033[91m"
 YELLOW = "\033[93m"
-BLUE   = "\033[94m"
 CYAN   = "\033[96m"
 WHITE  = "\033[97m"
 DIM    = "\033[2m"
@@ -219,6 +218,14 @@ def fmt(amount, currency):
     quanta = _quanta(currency)
     d = d.quantize(quanta, rounding=ROUND_DOWN)
     return f"{d} {currency.upper()}"
+
+
+def idr_k(val):
+    """Format IDR compact: 177187.74 → '177.188' (integer, titik ribuan, tanpa desimal)."""
+    try:
+        return f"{int(round(float(to_dec(val)))):,}".replace(",", ".")
+    except Exception:
+        return "N/A"
 
 
 def determine_win(roll_result: dict) -> bool:
@@ -510,7 +517,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
     max_loss_limit      = Decimal("45000")     # Stop-loss: berhenti jika loss ≥ Rp 45 ribu
-    topup_alert_idr     = Decimal("75000")     # ← Kirim alert Telegram jika saldo < X (Rp 75 ribu)
+    topup_alert_idr     = Decimal("75000")     # ← Warning terminal jika saldo < X (Rp 75 ribu)
     win_chance_pct      = Decimal("98")
     condition           = "below"
     target_num          = 98.0
@@ -541,7 +548,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     ronde                = 0
     stopped_by_user      = False
     next_rest_checkpoint = rest_setiap_volume     # Checkpoint volume berikutnya
-    next_million_notif   = Decimal("1000000")     # Notifikasi Telegram tiap Rp1 juta wager
+    next_million_notif   = Decimal("1000000")     # Milestone print di terminal tiap Rp1 juta wager
     _topup_notified      = False                  # Agar alert top-up hanya kirim sekali per sesi
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
 
@@ -620,7 +627,6 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             mnt, dtk     = divmod(sisa, 60)
             durasi_str   = f"{jam:02d}:{mnt:02d}:{dtk:02d}"
             win_rate     = Decimal(wins) / Decimal(ronde) * 100
-            bal_str      = fmt(bal_amount, currency) if bal_amount is not None else "N/A"
             ikon         = g(GREEN, "✅") if won else g(RED, "❌")
             loss_color   = RED if total_loss > 0 else DIM
 
@@ -644,19 +650,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             else:
                 speed_str = f"-- b/m"
 
-            # Format IDR compact: 177187.74 → "177.188" (tanpa desimal, titik ribuan)
-            def _k(val):
-                try:
-                    return f"{int(round(float(to_dec(val)))):,}".replace(",", ".")
-                except Exception:
-                    return "N/A"
-
-            bal_k   = _k(bal_amount) if bal_amount is not None else "N/A"
-            loss_k  = _k(total_loss)
+            bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
+            loss_k = idr_k(total_loss)
 
             print(
                 f"  {ikon} #{ronde} · "
-                f"Wgr {g(CYAN, _k(total_volume))} · "
+                f"Wgr {g(CYAN, idr_k(total_volume))} · "
                 f"Sld {g(CYAN, bal_k)} · "
                 f"Loss {g(loss_color, loss_k)} · "
                 f"W/L {g(GREEN, str(wins))}/{g(RED, str(losses))} "
