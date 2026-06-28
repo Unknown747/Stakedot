@@ -451,14 +451,14 @@ def rest_countdown(menit: int = 60):
 
 def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     """
-    Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 400.
+    Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 600.
 
     Tujuan  : Mengumpulkan volume wager secepat mungkin untuk naik VIP
               dengan modal ketat Rp 100.000.
 
     Logika istirahat:
       - Setiap Rp 5.000.000 wager kumulatif → istirahat 15 menit, lanjut otomatis
-      - Stop-loss Rp 30.000 → istirahat 5–10 menit, lanjut sesi baru
+      - Stop-loss Rp 45.000 → istirahat 5–10 menit, lanjut sesi baru
 
     Log terminal setiap spin: nomor bet, wager, saldo, loss, W/L, dan durasi bot berjalan.
 
@@ -467,11 +467,11 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
 
     # ── Konfigurasi strategi ──────────────────────────────────────────────────
     currency            = "idr"
-    base_bet            = Decimal("400")       # ← Ubah di sini jika ingin Rp 500, dst.
+    base_bet            = Decimal("600")       # ← Ubah di sini jika ingin Rp 400 / 800 / 1000
     rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
-    max_loss_limit      = Decimal("30000")     # Stop-loss: berhenti jika loss ≥ Rp 30 ribu
-    topup_alert_idr     = Decimal("50000")     # ← Kirim alert Telegram jika saldo < X (Rp 50 ribu)
+    max_loss_limit      = Decimal("45000")     # Stop-loss: berhenti jika loss ≥ Rp 45 ribu
+    topup_alert_idr     = Decimal("75000")     # ← Kirim alert Telegram jika saldo < X (Rp 75 ribu)
     win_chance_pct      = Decimal("98")
     condition           = "below"
     target_num          = 98.0
@@ -796,7 +796,7 @@ def main():
     # ── Pilih mode ────────────────────────────────────────────────────────────
     print_section("PILIH MODE")
     print(f"  {g(BOLD, '1.')} Dice Biasa       — atur sendiri currency, bet, target, dll")
-    print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 400/roll, stop-loss Rp 30rb")
+    print(f"  {g(BOLD, '2.')} Strategy VIP IDR — auto-bet 98% win, Rp 600/roll, stop-loss Rp 45rb")
     print(f"  {g(BOLD, '3.')} {g(CYAN, 'VPS Auto-Run')}    — seperti mode 2, tapi jalan terus 24/7 tanpa input")
     print(g(DIM, "             Mode 3 cocok untuk VPS/server — setiap sesi selesai"))
     print(g(DIM, "             otomatis istirahat lalu mulai sesi baru tanpa perlu diawasi."))

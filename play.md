@@ -21,11 +21,11 @@ Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `j
 ```python
 # ── Konfigurasi strategi ──────────────────────────────────────────────────
 currency            = "idr"
-base_bet            = Decimal("400")       # ← UBAH NILAI BET (Rp 200 / 400 / 500 / 1000)
+base_bet            = Decimal("600")       # ← UBAH NILAI BET (Rp 400 / 600 / 800 / 1000)
 rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
 rest_menit_volume   = 15                   # ← Durasi istirahat volume checkpoint (menit)
-max_loss_limit      = Decimal("30000")     # ← Stop-loss: berhenti jika loss ≥ X (default 30 ribu)
-topup_alert_idr     = Decimal("50000")     # ← Kirim alert Telegram jika saldo < X (default 50 ribu)
+max_loss_limit      = Decimal("45000")     # ← Stop-loss: berhenti jika loss ≥ X (default 45 ribu)
+topup_alert_idr     = Decimal("75000")     # ← Kirim alert Telegram jika saldo < X (default 75 ribu)
 ```
 
 **Contoh ubah bet ke Rp 500:**
@@ -138,7 +138,7 @@ python3 dice.py
 
 ```
   1. Dice Biasa       — atur sendiri currency, bet, target, dll
-  2. Strategy VIP IDR — auto-bet 98% win, Rp 400/roll, istirahat otomatis
+  2. Strategy VIP IDR — auto-bet 98% win, Rp 600/roll, istirahat otomatis
   3. VPS Auto-Run     — seperti mode 2, jalan 24/7 tanpa input
 ```
 
@@ -171,14 +171,14 @@ Auto-bet langsung jalan:
 | Setting | Nilai |
 |---|---|
 | Currency | IDR (Rupiah) |
-| Base Bet | **Rp 400** (ubah di variabel `base_bet`) |
+| Base Bet | **Rp 600** (ubah di variabel `base_bet`) |
 | Win Chance | 98% |
 | Multiplier | ~1.0102x |
 | Delay antar bet | 0.2 – 0.8 detik (speed mode) |
-| Log terminal | Setiap 50 bet |
+| Log terminal | Setiap spin (✅/❌ + durasi berjalan) |
 | Istirahat checkpoint | Setiap Rp 5.000.000 wager → 15 menit, lanjut otomatis |
-| Stop-loss | Loss ≥ Rp 30.000 → istirahat 5–10 menit, lanjut sesi baru |
-| **Top-Up Alert** | **Saldo < Rp 50.000 → notif Telegram (sekali per sesi)** |
+| Stop-loss | Loss ≥ Rp 45.000 → istirahat 5–10 menit, lanjut sesi baru |
+| **Top-Up Alert** | **Saldo < Rp 75.000 → notif Telegram (sekali per sesi)** |
 | Notifikasi | Telegram (jika disetup) |
 
 Fitur otomatis:
@@ -251,25 +251,25 @@ Ctrl+A lalu D            # detach (biarkan jalan di background)
 
 ## 7. Perkiraan Kecepatan & Target VIP
 
-### Dengan Base Bet Rp 400, delay 0.2–0.8 detik:
+### Dengan Base Bet Rp 600, delay 0.2–0.8 detik:
 
 | Metrik | Estimasi |
 |---|---|
 | Kecepatan | ~118 bet/menit |
-| Volume per jam | ~Rp 2.800.000 |
-| Checkpoint 5 juta | tercapai dalam ~1 jam 45 menit |
-| Stop-loss Rp 30.000 | terpicu rata-rata setiap ~6.600 bet |
+| Volume per jam | ~Rp 4.200.000 |
+| Checkpoint 5 juta | tercapai dalam ~1 jam 10 menit |
+| Stop-loss Rp 45.000 | terpicu rata-rata setiap ~6.600 bet |
 
 ### Target VIP Silver (sisa ~$10.500 ≈ Rp 168 juta wager):
 
 | Base Bet | Volume/jam | Estimasi total waktu |
 |---|---|---|
-| Rp 200 | ~Rp 1.400.000 | ~120 jam |
-| **Rp 400** | **~Rp 2.800.000** | **~60 jam** |
-| Rp 500 | ~Rp 3.500.000 | ~48 jam |
+| Rp 400 | ~Rp 2.800.000 | ~60 jam |
+| **Rp 600** | **~Rp 4.200.000** | **~40 jam** |
+| Rp 800 | ~Rp 5.600.000 | ~30 jam |
 
 > House edge 1% — expected loss per Rp 100.000 modal ≈ Rp 1.000 per sesi.  
-> Script berhenti otomatis jika loss ≥ Rp 30.000 dari saldo awal.
+> Script berhenti otomatis jika loss ≥ Rp 45.000 dari saldo awal.
 
 ---
 
