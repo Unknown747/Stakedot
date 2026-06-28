@@ -25,6 +25,7 @@ base_bet            = Decimal("400")       # ← UBAH NILAI BET (Rp 200 / 400 / 
 rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
 rest_menit_volume   = 15                   # ← Durasi istirahat volume checkpoint (menit)
 max_loss_limit      = Decimal("30000")     # ← Stop-loss: berhenti jika loss ≥ X (default 30 ribu)
+topup_alert_idr     = Decimal("50000")     # ← Kirim alert Telegram jika saldo < X (default 50 ribu)
 ```
 
 **Contoh ubah bet ke Rp 500:**
