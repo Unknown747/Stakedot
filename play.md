@@ -1,146 +1,151 @@
-# 🎲 Stake.com Dice CLI — Panduan Setup & Penggunaan
+# 🎲 Stake Dice Bot — Panduan Lengkap
 
 ---
 
 ## 📋 Daftar Isi
-1. [Cara Mendapatkan API Key Stake.com](#1-cara-mendapatkan-api-key-stakecom)
-2. [Setting Environment Variable](#2-setting-environment-variable)
-3. [Instalasi Dependensi](#3-instalasi-dependensi)
-4. [Cara Menjalankan Script](#4-cara-menjalankan-script)
-5. [Panduan Menu](#5-panduan-menu)
-6. [Strategy VIP (Rekomendasi)](#6-strategy-vip-rekomendasi)
-7. [Audit & Test](#7-audit--test)
+1. [Konfigurasi Cepat (Edit di Sini)](#1-konfigurasi-cepat-edit-di-sini)
+2. [Setup API Key Stake.com](#2-setup-api-key-stakecom)
+3. [Setup Notifikasi Telegram](#3-setup-notifikasi-telegram)
+4. [Instalasi & Menjalankan](#4-instalasi--menjalankan)
+5. [Panduan Menu (Mode 1 / 2 / 3)](#5-panduan-menu-mode-1--2--3)
+6. [Deploy di VPS](#6-deploy-di-vps)
+7. [Perkiraan Kecepatan & Target VIP](#7-perkiraan-kecepatan--target-vip)
 8. [Struktur File](#8-struktur-file)
 
 ---
 
-## 1. Cara Mendapatkan API Key Stake.com
+## 1. Konfigurasi Cepat (Edit di Sini)
 
-1. Login ke akun Stake.com kamu
-2. Klik foto profil → **Settings**
-3. Pilih tab **API**
-4. Klik **Create API Key**
-5. Beri nama key (contoh: `dice-cli`)
-6. Salin key yang muncul — **simpan baik-baik, hanya tampil sekali**
-
-> ⚠️ Jangan bagikan API Key ke siapapun. Key ini punya akses penuh ke akun kamu.
-
----
-
-## 2. Setting Environment Variable
-
-Ada **3 cara** tergantung kamu menjalankan script di mana:
-
----
-
-### ✅ Cara A — Di Replit (Direkomendasikan)
-
-Replit menyimpan API Key sebagai **Secret** (lebih aman dari .env biasa):
-
-1. Di Replit, klik ikon **🔒 Secrets** di sidebar kiri
-2. Klik **+ New Secret**
-3. Isi:
-   - **Key** : `STAKE_API_KEY`
-   - **Value**: paste API Key Stake.com kamu
-4. Klik **Save**
-5. Jalankan script — key otomatis terbaca
-
-> Secret Replit **tidak perlu** file `.env`. Langsung bisa dipakai.
-
----
-
-### ✅ Cara B — Di Komputer Lokal (via file `.env`)
-
-**Langkah 1** — Buat file `.env` di folder yang sama dengan `dice.py`:
-
-```
-STAKE_API_KEY=masukkan_api_key_kamu_disini
-```
-
-**Langkah 2** — Install library `python-dotenv`:
-
-```bash
-pip install python-dotenv requests
-```
-
-**Langkah 3** — Tambahkan baris ini di paling atas `dice.py` (setelah `import os`):
+Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `jalankan_strategy_vip()`:
 
 ```python
-from dotenv import load_dotenv
-load_dotenv()
+# ── Konfigurasi strategi ──────────────────────────────────────────────────
+currency            = "idr"
+base_bet            = Decimal("400")       # ← UBAH NILAI BET (Rp 200 / 400 / 500 / 1000)
+rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
+rest_menit_volume   = 15                   # ← Durasi istirahat volume checkpoint (menit)
+max_loss_limit      = Decimal("30000")     # ← Stop-loss: berhenti jika loss ≥ X (default 30 ribu)
+```
+
+**Contoh ubah bet ke Rp 500:**
+```python
+base_bet = Decimal("500")
+```
+
+**Contoh ubah stop-loss ke Rp 50.000:**
+```python
+max_loss_limit = Decimal("50000")
+```
+
+**Contoh istirahat setiap Rp 2 juta selama 10 menit:**
+```python
+rest_setiap_volume = Decimal("2000000")
+rest_menit_volume  = 10
 ```
 
 ---
 
-### ✅ Cara C — Export langsung di Terminal
+## 2. Setup API Key Stake.com
 
-**Linux / macOS / Replit Shell:**
+### Cara mendapatkan API Key
+1. Login ke akun Stake.com
+2. Klik foto profil → **Settings**
+3. Pilih tab **API**
+4. Klik **Create API Key** → beri nama → salin key
+
+> ⚠️ Key hanya tampil sekali. Simpan baik-baik. Jangan bagikan ke siapapun.
+
+---
+
+### Set API Key — Pilih salah satu cara:
+
+**Di VPS / Terminal Linux (permanen):**
 ```bash
-export STAKE_API_KEY=masukkan_api_key_kamu_disini
-python dice.py
+echo 'export STAKE_API_KEY="api_key_kamu"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-**Windows (Command Prompt):**
-```cmd
-set STAKE_API_KEY=masukkan_api_key_kamu_disini
-python dice.py
+**Di VPS / Terminal Linux (sementara, hilang setelah reboot):**
+```bash
+export STAKE_API_KEY="api_key_kamu"
 ```
 
-**Windows (PowerShell):**
-```powershell
-$env:STAKE_API_KEY = "masukkan_api_key_kamu_disini"
-python dice.py
+**Di Replit (paling aman):**
+1. Klik ikon 🔒 **Secrets** di sidebar kiri
+2. Klik **+ New Secret**
+3. Key: `STAKE_API_KEY` — Value: paste API key kamu
+
+**Di file `.env` (lokal):**
+```
+STAKE_API_KEY=api_key_kamu
+```
+> `python-dotenv` tidak wajib diinstall. Jika tidak ada, pakai cara export di atas.
+
+---
+
+## 3. Setup Notifikasi Telegram
+
+Bot otomatis kirim notifikasi ke HP kamu saat:
+- ✅ Checkpoint wager tercapai (tiap 5 juta)
+- 🛑 Stop-loss terpicu
+- 🎉 Level VIP naik
+- 📊 Ringkasan setiap sesi selesai
+
+### Langkah setup:
+
+**Step 1 — Buat Bot Telegram:**
+1. Buka Telegram → cari **@BotFather**
+2. Kirim `/newbot`
+3. Ikuti instruksi → salin **Bot Token** (format: `123456:ABCdef...`)
+
+**Step 2 — Dapatkan Chat ID:**
+1. Kirim pesan apa saja ke bot kamu
+2. Buka browser: `https://api.telegram.org/bot<TOKEN>/getUpdates`
+3. Cari `"chat":{"id":` → salin angkanya (contoh: `987654321`)
+
+**Step 3 — Set environment variable:**
+```bash
+echo 'export TELEGRAM_BOT_TOKEN="token_kamu"' >> ~/.bashrc
+echo 'export TELEGRAM_CHAT_ID="chat_id_kamu"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+> Jika `TELEGRAM_BOT_TOKEN` tidak diset, script tetap berjalan normal — notifikasi hanya di-skip diam-diam.
+
+---
+
+## 4. Instalasi & Menjalankan
+
+### Instalasi (VPS Ubuntu)
+```bash
+# Cara cepat — jalankan setup otomatis:
+bash setup.sh
+
+# Atau manual:
+sudo apt install python3 python3-pip screen -y
+pip3 install requests
+```
+
+### Jalankan script
+```bash
+python3 dice.py
 ```
 
 ---
 
-## 3. Instalasi Dependensi
-
-```bash
-pip install -r requirements.txt
-```
-
-Atau manual:
-```bash
-pip install requests
-```
-
-Jika pakai `.env` (Cara B):
-```bash
-pip install requests python-dotenv
-```
-
----
-
-## 4. Cara Menjalankan Script
-
-```bash
-python dice.py
-```
-
-Script akan otomatis:
-- Cek API Key
-- Login ke Stake.com
-- Tampilkan statistik kumulatif dari semua sesi sebelumnya
-- Tampilkan saldo akun
-- Tampilkan menu pilihan mode
-
----
-
-## 5. Panduan Menu
-
-### Menu Utama — Pilih Mode
+## 5. Panduan Menu (Mode 1 / 2 / 3)
 
 ```
-1. Dice Biasa       — atur sendiri currency, bet, target, dll
-2. Strategy VIP IDR — auto-bet 98% win, Rp 200/roll, stop-loss Rp 30rb
+  1. Dice Biasa       — atur sendiri currency, bet, target, dll
+  2. Strategy VIP IDR — auto-bet 98% win, Rp 400/roll, istirahat otomatis
+  3. VPS Auto-Run     — seperti mode 2, jalan 24/7 tanpa input
 ```
 
 ---
 
 ### Mode 1 — Dice Biasa
 
-Konfigurasi manual, kamu atur sendiri:
+Konfigurasi manual sepenuhnya:
 
 | Langkah | Pilihan |
 |---|---|
@@ -148,9 +153,9 @@ Konfigurasi manual, kamu atur sendiri:
 | Jumlah bet | Bebas (angka positif) |
 | Target number | 1.01 – 97.99 |
 | Kondisi | Over (hasil > target) atau Under (hasil < target) |
-| Mode bermain | Manual (Enter tiap bet) atau Auto (otomatis) |
+| Mode bermain | Manual (Enter tiap bet) atau Auto |
 
-**Jika pilih Auto, bisa setting tambahan:**
+Jika pilih Auto:
 - Jumlah ronde (0 = tanpa batas)
 - Jeda antar bet (detik)
 - Stop jika profit ≥ X
@@ -160,78 +165,109 @@ Konfigurasi manual, kamu atur sendiri:
 
 ### Mode 2 — Strategy VIP IDR ⭐
 
-Auto-bet langsung jalan tanpa konfigurasi tambahan:
+Auto-bet langsung jalan:
 
 | Setting | Nilai |
 |---|---|
 | Currency | IDR (Rupiah) |
-| Bet per roll | Rp 200 (flat, tidak naik saat kalah) |
-| Win chance | 98% |
-| Multiplier | 1.0102x |
-| Profit per menang | ~Rp 2 |
-| Stop otomatis | Total wager ≥ Rp 2.000.000 |
-| Stop-loss | Loss kumulatif ≥ Rp 30.000 |
-| Jeda antar bet | 0.6 – 1.3 detik (acak) |
-| Auto-restart | Tanya lanjut sesi baru setelah selesai |
+| Base Bet | **Rp 400** (ubah di variabel `base_bet`) |
+| Win Chance | 98% |
+| Multiplier | ~1.0102x |
+| Delay antar bet | 0.2 – 0.8 detik (speed mode) |
+| Log terminal | Setiap 50 bet |
+| Istirahat checkpoint | Setiap Rp 5.000.000 wager → 15 menit, lanjut otomatis |
+| Stop-loss | Loss ≥ Rp 30.000 → istirahat 5–10 menit, lanjut sesi baru |
+| Notifikasi | Telegram (jika disetup) |
 
-**Fitur otomatis di setiap sesi:**
-- VIP status + progress bar tampil di atas CLI sebelum sesi dimulai
-- VIP progress di-refresh dari API setelah sesi selesai
-- Alert khusus jika level VIP naik selama sesi
-- Log sesi disimpan ke `log_sesi.csv` secara otomatis
-
----
-
-## 6. Strategy VIP (Rekomendasi)
-
-### Kenapa 98% Win Chance?
-
-- Saldo turun sangat perlahan dan stabil
-- Risiko bust mendadak sangat kecil
-- Fokus pada **volume taruhan** (untuk naik VIP), bukan profit
-- Dengan modal Rp 100.000 dan bet Rp 200: estimasi tahan **~10.000 roll**
-
-### Estimasi dengan Modal Rp 100.000
-
-| | Nilai |
-|---|---|
-| Expected loss per roll | ~Rp 2 (house edge 1%) |
-| Estimasi tahan | ~10.000 roll |
-| Waktu (±1 detik/roll) | ~2.8 jam |
-| Volume terkumpul | ~Rp 2.000.000 |
-
-### Progress VIP Silver
-
-- Dibutuhkan total wager **~$8.400 USD** (≈ Rp 137.000.000) untuk naik ke Silver
-- Setiap sesi Rp 100.000 → mengumpulkan ~Rp 2.000.000 wager
-- Perlu **~69 sesi** dengan modal masing-masing Rp 100.000
+Fitur otomatis:
+- VIP status + progress bar sebelum sesi
+- VIP progress di-refresh setelah sesi
+- Alert + notifikasi Telegram jika level VIP naik
+- Log sesi disimpan ke `log_sesi.csv`
+- Setelah tiap sesi: tanya y/n untuk sesi baru
 
 ---
 
-## 7. Audit & Test
+### Mode 3 — VPS Auto-Run 🖥️
 
-Jalankan test script untuk memverifikasi semua komponen berjalan sebelum sesi panjang:
+Seperti Mode 2 tapi **jalan sepenuhnya otomatis tanpa input**:
 
-```bash
-python test_audit.py
+- Tanya durasi istirahat antar sesi (default 60 menit)
+- Setelah tiap sesi selesai: countdown istirahat → mulai sesi baru otomatis
+- Ctrl+C saat **betting** = keluar program
+- Ctrl+C saat **countdown** = skip istirahat, langsung sesi baru
+
+```
+  ⏸  Istirahat 60 menit — sesi berikutnya ± pukul 15:30
+  ⏰  [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░] 52:18 tersisa
 ```
 
-Test yang dicek secara otomatis:
-1. **Koneksi & Login** — pastikan API Key valid
-2. **VIP Status Display** — tampilkan progress bar
-3. **Saldo IDR** — konfirmasi saldo tersedia
-4. **Live Bet 5 Ronde** — taruhan nyata kecil untuk validasi API
-5. **Stop Condition Logic** — simulasi trigger target volume & stop-loss
-6. **CSV Logging** — simpan & baca balik log sesi
+---
+
+## 6. Deploy di VPS
+
+### Setup otomatis (1 perintah):
+```bash
+bash setup.sh
+```
+
+### Setup manual:
+```bash
+# Install dependencies
+sudo apt install python3 python3-pip screen -y
+pip3 install requests
+
+# Set API key permanen
+echo 'export STAKE_API_KEY="api_key_kamu"' >> ~/.bashrc
+
+# Opsional: Telegram
+echo 'export TELEGRAM_BOT_TOKEN="token_kamu"' >> ~/.bashrc
+echo 'export TELEGRAM_CHAT_ID="chat_id_kamu"' >> ~/.bashrc
+
+source ~/.bashrc
+```
+
+### Jalankan di background (tetap jalan walau SSH ditutup):
+```bash
+screen -S stake          # buka sesi background
+python3 dice.py          # jalankan bot
+# → pilih Mode 3 untuk 24/7 otomatis
+
+Ctrl+A lalu D            # detach (biarkan jalan di background)
+```
+
+### Perintah screen penting:
+
+| Perintah | Fungsi |
+|---|---|
+| `screen -r stake` | Buka kembali sesi bot |
+| `screen -ls` | Lihat semua sesi aktif |
+| `Ctrl+A` lalu `D` | Detach tanpa matikan |
+| `Ctrl+C` | Hentikan bot |
 
 ---
 
-## 🛑 Peringatan Penting
+## 7. Perkiraan Kecepatan & Target VIP
 
-- Script ini menggunakan **API resmi Stake.com** — bukan browser bot
-- Semua taruhan menggunakan **uang nyata** dari akun kamu
-- House edge tetap ada di setiap strategi — tidak ada strategi yang 100% profit
-- Gunakan dengan bijak dan sesuai kemampuan finansial
+### Dengan Base Bet Rp 400, delay 0.2–0.8 detik:
+
+| Metrik | Estimasi |
+|---|---|
+| Kecepatan | ~118 bet/menit |
+| Volume per jam | ~Rp 2.800.000 |
+| Checkpoint 5 juta | tercapai dalam ~1 jam 45 menit |
+| Stop-loss Rp 30.000 | terpicu rata-rata setiap ~6.600 bet |
+
+### Target VIP Silver (sisa ~$10.500 ≈ Rp 168 juta wager):
+
+| Base Bet | Volume/jam | Estimasi total waktu |
+|---|---|---|
+| Rp 200 | ~Rp 1.400.000 | ~120 jam |
+| **Rp 400** | **~Rp 2.800.000** | **~60 jam** |
+| Rp 500 | ~Rp 3.500.000 | ~48 jam |
+
+> House edge 1% — expected loss per Rp 100.000 modal ≈ Rp 1.000 per sesi.  
+> Script berhenti otomatis jika loss ≥ Rp 30.000 dari saldo awal.
 
 ---
 
@@ -239,10 +275,20 @@ Test yang dicek secara otomatis:
 
 ```
 /
-├── dice.py          ← Script utama
+├── dice.py          ← Script utama (edit variabel di jalankan_strategy_vip)
 ├── test_audit.py    ← Audit & test semua komponen
+├── setup.sh         ← Setup otomatis di VPS Ubuntu
 ├── play.md          ← Panduan ini
 ├── requirements.txt ← Dependensi Python
 ├── .gitignore       ← File yang dikecualikan dari git
 └── log_sesi.csv     ← Log otomatis setiap sesi (dibuat saat pertama run)
 ```
+
+---
+
+## ⚠️ Peringatan Penting
+
+- Script ini menggunakan **API resmi Stake.com** — bukan browser bot
+- Semua taruhan menggunakan **uang nyata** dari akun kamu
+- House edge tetap ada — tidak ada strategi yang 100% profit
+- Gunakan dengan bijak sesuai kemampuan finansial

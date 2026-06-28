@@ -21,7 +21,10 @@ from datetime import datetime
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-API_KEY = os.environ.get("STAKE_API_KEY", "")
+API_KEY          = os.environ.get("STAKE_API_KEY", "")
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
 API_URL = "https://stake.com/_api/graphql"
 HEADERS = {
     "Content-Type": "application/json",
@@ -29,6 +32,24 @@ HEADERS = {
 }
 
 MAX_CONSECUTIVE_ERRORS = 5  # Berhenti jika gagal N kali berturut-turut
+
+
+def kirim_telegram(pesan: str):
+    """
+    Kirim notifikasi teks ke Telegram.
+    Butuh env vars: TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID.
+    Diam-diam (silent fail) jika token tidak diset — tidak crash script.
+    """
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": pesan, "parse_mode": "HTML"},
+            timeout=10,
+        )
+    except Exception:
+        pass  # Notifikasi gagal tidak boleh menghentikan script
 
 # ─── Warna Terminal ────────────────────────────────────────────────────────────
 
@@ -605,16 +626,29 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                     f"\n  🛑 Stop-loss Rp 30.000 tercapai di bet #{ronde}. "
                     f"Istirahat {jeda} menit untuk mengamankan modal..."
                 ))
+                kirim_telegram(
+                    f"🛑 <b>STOP-LOSS</b>\n"
+                    f"Bet #{ronde} | Loss: {fmt(total_loss, currency)}\n"
+                    f"Wager sesi: {fmt(total_volume, currency)}\n"
+                    f"Istirahat {jeda} menit lalu lanjut otomatis."
+                )
                 rest_countdown(jeda)
                 break
 
             # ── Cek checkpoint volume → istirahat 15 menit lalu lanjut ───────
             if total_volume >= next_rest_checkpoint:
                 next_rest_checkpoint += rest_setiap_volume
+                win_rate_now = Decimal(wins) / Decimal(ronde) * 100 if ronde > 0 else Decimal("0")
                 print(g(CYAN,
                     f"\n  ✅ Checkpoint {fmt(total_volume, currency)} wager tercapai! "
                     f"Istirahat {rest_menit_volume} menit..."
                 ))
+                kirim_telegram(
+                    f"✅ <b>CHECKPOINT</b> {fmt(total_volume, currency)}\n"
+                    f"Bet #{ronde} | W/L: {wins}/{losses} ({win_rate_now:.1f}%)\n"
+                    f"Loss sesi: {fmt(total_loss, currency)}\n"
+                    f"Istirahat {rest_menit_volume} menit lalu lanjut otomatis."
+                )
                 rest_countdown(rest_menit_volume)
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
                 continue   # ← lanjut, bukan break
@@ -663,9 +697,21 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
   ║  🎉  SELAMAT! LEVEL VIP NAIK!           ║
   ║  {flag_before.upper():<10} → {flag_now.upper():<10}              ║
   ╚══════════════════════════════════════════╝"""))
+            kirim_telegram(
+                f"🎉 <b>VIP NAIK!</b>\n"
+                f"{flag_before.upper()} → {flag_now.upper()}\n"
+                f"Wager sesi ini: {fmt(total_volume, currency)}"
+            )
         else:
             gain = (prog_now - prog_before) * 100
             print(g(DIM, f"  Progress naik: +{gain:.2f}% dalam sesi ini"))
+            kirim_telegram(
+                f"📊 <b>Sesi Selesai</b>\n"
+                f"Bet: {total} | W/L: {wins}/{losses} ({win_rate:.1f}%)\n"
+                f"Wager: {fmt(total_volume, currency)}\n"
+                f"Net: {('+' if net >= 0 else '') + fmt(net, currency)}\n"
+                f"VIP Progress: +{gain:.2f}%"
+            )
 
     except Exception:
         pass  # Jika gagal refresh, lanjut tanpa crash
