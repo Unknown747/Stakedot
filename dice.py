@@ -513,7 +513,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
 
     # ── Konfigurasi strategi ──────────────────────────────────────────────────
     currency            = "idr"
-    base_bet            = Decimal("600")       # ← Ubah di sini jika ingin Rp 400 / 800 / 1000
+    base_bet            = Decimal("400")       # ← Ubah di sini jika ingin Rp 400 / 600 / 800 / 1000
     rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
     max_loss_limit      = Decimal("45000")     # Stop-loss: berhenti jika loss ≥ Rp 45 ribu
