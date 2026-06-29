@@ -20,7 +20,7 @@ Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `j
 ```python
 # ── Konfigurasi strategi ──────────────────────────────────────────────────
 currency            = "idr"
-base_bet            = Decimal("400")       # ← UBAH NILAI BET (Rp 400 / 600 / 800 / 1000)
+base_bet            = Decimal("200")       # ← UBAH NILAI BET (Rp 200 / 400 / 600 / 800 / 1000)
 rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
 rest_menit_volume   = 15                   # ← Durasi istirahat checkpoint (menit)
 max_loss_limit      = Decimal("45000")     # ← Stop-loss: berhenti jika loss ≥ X (default 45 ribu)
@@ -138,7 +138,7 @@ Auto-bet langsung jalan:
 | Setting | Nilai |
 |---|---|
 | Currency | IDR (Rupiah) |
-| Base Bet | **Rp 400** (ubah di variabel `base_bet`) |
+| Base Bet | **Rp 200** (ubah di variabel `base_bet`) |
 | Win Chance | 98% |
 | Multiplier | ~1.0102x |
 | Delay antar bet | Tidak ada — API Stake jadi natural throttle |
@@ -154,7 +154,7 @@ Auto-bet langsung jalan:
 | Setting | Nilai default |
 |---|---|
 | Status | **AKTIF** (matikan: `recovery_enabled = False`) |
-| Recovery Bet | `base_bet × 50` = **Rp 20.000** (untuk base Rp 400) |
+| Recovery Bet | `base_bet × 50` = **Rp 10.000** (untuk base Rp 200) |
 | Safety Cap | Rp 20.000 — bet recovery tidak akan melebihi ini |
 | Max Level | **1 klik saja** — tidak ada eskalasi berlanjut |
 | Delay sebelum recovery | **3–5 detik** (pemutus bad run di server) |
