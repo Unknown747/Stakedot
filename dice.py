@@ -525,6 +525,13 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     multiplier          = (Decimal("99") / win_chance_pct).quantize(
                               Decimal("0.000001"), rounding=ROUND_DOWN)
 
+    # ── Konfigurasi Recovery (Martingale-lite) ────────────────────────────────
+    # Setelah kalah, bet dinaikkan agar 1x menang cukup untuk recover loss.
+    # Setelah menang, bet kembali ke base_bet.
+    recovery_enabled    = True             # ← False = flat bet tanpa recovery
+    recovery_multiplier = Decimal("2.0")   # ← 2.0 = double setiap kalah (martingale klasik)
+    max_recovery_step   = 4               # ← Maks step recovery; bet maks = base × 2^4 = base × 16
+
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
     print_vip_status(flag_progress)
@@ -536,6 +543,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
+    if recovery_enabled:
+        max_bet = (base_bet * (recovery_multiplier ** max_recovery_step)).quantize(
+                      _quanta(currency), rounding=ROUND_DOWN)
+        print(f"  Recovery      : {g(GREEN, 'AKTIF')}  {g(DIM, f'× {recovery_multiplier} per loss, maks {max_recovery_step} step')}  {g(DIM, f'(bet maks: {fmt(max_bet, currency)})')}")
+    else:
+        print(f"  Recovery      : {g(DIM, 'nonaktif (flat bet)')}")
     print(f"  Delay         : {g(DIM, 'tanpa delay — API Stake sebagai natural throttle')}")
     print(f"  Log terminal  : {g(DIM, 'setiap spin (dengan durasi berjalan)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
@@ -554,6 +567,10 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
     take_profit_idr      = Decimal("5000")        # Jeda 5 dtk setiap kelipatan profit ini
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
+
+    # ── Recovery state ────────────────────────────────────────────────────────
+    current_bet          = base_bet               # Bet aktif (naik saat recovery, reset saat menang)
+    recovery_step        = 0                      # Step recovery saat ini (0 = base bet)
 
     try:
         while True:
