@@ -138,20 +138,48 @@ Auto-bet langsung jalan:
 | Setting | Nilai |
 |---|---|
 | Currency | IDR (Rupiah) |
-| Base Bet | **Rp 600** (ubah di variabel `base_bet`) |
+| Base Bet | **Rp 400** (ubah di variabel `base_bet`) |
 | Win Chance | 98% |
 | Multiplier | ~1.0102x |
 | Delay antar bet | Tidak ada — API Stake jadi natural throttle |
 | Auto-throttle | Sleep otomatis jika >30 b/m (proteksi rate-limit) |
-| Log terminal | Setiap spin: ✅/❌, wager, saldo, W/L, **kecepatan (b/m)**, **ETA ke 1 Juta** |
+| Log terminal | Setiap spin: ✅/❌, bet aktif, wager, saldo, W/L, kecepatan (b/m), ETA |
 | Istirahat checkpoint | Setiap Rp 5.000.000 wager → 15 menit, lanjut otomatis |
 | Stop-loss | Loss ≥ Rp 45.000 → istirahat 5–10 menit, lanjut sesi baru |
 | Top-Up Alert | Saldo < Rp 75.000 → peringatan di terminal (sekali per sesi) |
-| Log file | Setiap spin disimpan ke `log_sesi.csv` (max 500 baris, rotasi otomatis) |
+| Log file | Setiap sesi disimpan ke `log_sesi.csv` (max 500 baris, rotasi otomatis) |
+
+### 🔄 Sistem Recovery (Martingale Kilat — 1 Level Only)
+
+| Setting | Nilai default |
+|---|---|
+| Status | **AKTIF** (matikan: `recovery_enabled = False`) |
+| Recovery Bet | `base_bet × 50` = **Rp 20.000** (untuk base Rp 400) |
+| Safety Cap | Rp 20.000 — bet recovery tidak akan melebihi ini |
+| Max Level | **1 klik saja** — tidak ada eskalasi berlanjut |
+| Delay sebelum recovery | **3–5 detik** (pemutus bad run di server) |
+| Jika recovery menang | ✅ Langsung kembali ke Base Bet |
+| Jika recovery kalah | ⚠️ Loss diterima, reset ke Base Bet (cicil ulang) |
+
+**Logika alur recovery:**
+```
+Normal Bet (Rp 400)
+  ├── MENANG → tetap Base Bet → lanjut
+  └── KALAH  → jeda 3–5 detik → tembak Recovery Bet (Rp 20.000)
+                ├── MENANG → ✅ kembali Base Bet → lanjut
+                └── KALAH  → ⚠️ loss diterima → kembali Base Bet → lanjut
+```
+
+> **Catatan:** Recovery bet (50×) tidak selalu menutup loss 100% secara matematis
+> (butuh ~98× untuk impas sempurna di win 98%), tapi sangat meredam erosi saldo.
+> Ubah `recovery_factor` di kode jika ingin multiplier yang berbeda.
 
 **Contoh tampilan log terminal:**
 ```
-✅ #24  │  Wager: 14.400  │  Saldo: 177.880  │  Loss: -147  │  W/L: 24/0 (100.0%)  │  6.3 b/m  │  ETA 1Jt: 158m  │  ⏱ 00:03:47
+✅ #24  Bet 400  ·  Wgr 9.600  ·  Sld 177.880  ·  Loss 0  ·  W/L 24/0 (100.0%)
+⚡ KALAH — jeda 3.7d lalu tembak Recovery Bet 20.000 IDR...
+✅ #25  RCV 20.000  ·  Wgr 29.600  ·  Sld 177.600  ·  Loss 280  ·  W/L 25/1 (96.2%)
+✅ RECOVERY BERHASIL — kembali ke Base Bet 400 IDR
 ```
 
 Fitur otomatis:

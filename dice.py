@@ -525,12 +525,15 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     multiplier          = (Decimal("99") / win_chance_pct).quantize(
                               Decimal("0.000001"), rounding=ROUND_DOWN)
 
-    # ── Konfigurasi Recovery (Martingale-lite) ────────────────────────────────
-    # Setelah kalah, bet dinaikkan agar 1x menang cukup untuk recover loss.
-    # Setelah menang, bet kembali ke base_bet.
-    recovery_enabled    = True             # ← False = flat bet tanpa recovery
-    recovery_multiplier = Decimal("2.0")   # ← 2.0 = double setiap kalah (martingale klasik)
-    max_recovery_step   = 4               # ← Maks step recovery; bet maks = base × 2^4 = base × 16
+    # ── Konfigurasi Recovery (Martingale Kilat — 1 Level Only) ──────────────────
+    # Desain: Kalah → tembak 1× bet besar untuk menutup loss → apapun hasilnya,
+    #         langsung kembali ke base_bet. TIDAK ada eskalasi berlanjut.
+    # Ref catatan: "Taruhan besar HANYA boleh bernyawa selama 1 klik."
+    recovery_enabled       = True              # ← False = flat bet tanpa recovery
+    recovery_factor        = Decimal("50")     # ← Recovery bet = base_bet × 50 (5.000% dari base)
+    recovery_max_bet       = Decimal("20000")  # ← Safety cap — bet recovery tidak boleh melebihi ini
+    recovery_delay_min_sec = 3                 # ← Jeda minimum sebelum tembak recovery (detik)
+    recovery_delay_max_sec = 5                 # ← Jeda maksimum sebelum tembak recovery (detik)
 
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
@@ -544,9 +547,11 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
     if recovery_enabled:
-        max_bet = (base_bet * (recovery_multiplier ** max_recovery_step)).quantize(
-                      _quanta(currency), rounding=ROUND_DOWN)
-        print(f"  Recovery      : {g(GREEN, 'AKTIF')}  {g(DIM, f'× {recovery_multiplier} per loss, maks {max_recovery_step} step')}  {g(DIM, f'(bet maks: {fmt(max_bet, currency)})')}")
+        _rbbet = min(base_bet * recovery_factor, recovery_max_bet).quantize(
+                     _quanta(currency), rounding=ROUND_DOWN)
+        print(f"  Recovery      : {g(GREEN, 'AKTIF')}  "
+              f"{g(DIM, f'1 level only · bet recovery: {fmt(_rbbet, currency)}')}  "
+              f"{g(DIM, f'· delay {recovery_delay_min_sec}–{recovery_delay_max_sec}d')}")
     else:
         print(f"  Recovery      : {g(DIM, 'nonaktif (flat bet)')}")
     print(f"  Delay         : {g(DIM, 'tanpa delay — API Stake sebagai natural throttle')}")
@@ -569,8 +574,8 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
     # ── Recovery state ────────────────────────────────────────────────────────
-    current_bet          = base_bet               # Bet aktif (naik saat recovery, reset saat menang)
-    recovery_step        = 0                      # Step recovery saat ini (0 = base bet)
+    current_bet = base_bet   # Bet aktif saat ini
+    in_recovery = False      # True = giliran bet recovery sekarang (maks 1 klik)
 
     try:
         while True:
@@ -579,7 +584,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             identifier = str(uuid.uuid4())
             try:
                 api_result = gql(DICE_MUTATION, {
-                    "amount":     float(base_bet),
+                    "amount":     float(current_bet),
                     "target":     target_num,
                     "condition":  condition,
                     "currency":   currency,
@@ -607,18 +612,49 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             amount     = to_dec(roll.get("amount", 0))
             profit     = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
 
-            won_state  = determine_win(state)
-            won_payout = payout > amount
-            won        = won_payout if not state else won_state
+            won_state      = determine_win(state)
+            won_payout     = payout > amount
+            won            = won_payout if not state else won_state
+            was_recovery   = in_recovery  # Capture sebelum state machine mengubahnya
 
             # ── Update statistik ──────────────────────────────────────────────
-            total_volume += base_bet
+            total_volume += current_bet
             total_loss   -= profit   # negatif jika menang, positif jika kalah
 
             if won:
                 wins += 1
             else:
                 losses += 1
+
+            # ── Recovery State Machine ────────────────────────────────────────
+            # Desain: 1 level only — bet besar diizinkan HANYA 1 klik.
+            # Apapun hasilnya (menang/kalah), langsung kembali ke base_bet.
+            if in_recovery:
+                # Giliran ini ADALAH bet recovery — resolusi wajib
+                in_recovery = False
+                current_bet = base_bet
+                if won:
+                    print(g(GREEN, f"  ✅ RECOVERY BERHASIL — kembali ke Base Bet {fmt(base_bet, currency)}"))
+                else:
+                    print(g(RED,
+                        f"  ⚠️  Recovery kalah — loss diterima. "
+                        f"Reset ke Base Bet {fmt(base_bet, currency)}  "
+                        f"(cicil ulang dari bawah)"
+                    ))
+            else:
+                # Giliran ini adalah bet normal
+                if not won and recovery_enabled:
+                    # Hitung bet recovery (50× base, dibatasi safety cap)
+                    raw_rb      = base_bet * recovery_factor
+                    current_bet = min(raw_rb, recovery_max_bet).quantize(
+                                      _quanta(currency), rounding=ROUND_DOWN)
+                    in_recovery = True
+                    delay_sek   = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
+                    print(g(YELLOW,
+                        f"\n  ⚡ KALAH — jeda {delay_sek:.1f}d lalu tembak "
+                        f"Recovery Bet {fmt(current_bet, currency)}...\n"
+                    ))
+                    time.sleep(delay_sek)
 
             # ── Ambil saldo terkini ───────────────────────────────────────────
             user_bals  = roll.get("user", {}).get("balances", [])
@@ -673,8 +709,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
             loss_k = idr_k(total_loss)
 
+            # Tandai apakah spin ini adalah bet recovery (pakai was_recovery — dicapture sebelum state machine)
+            bet_label = (g(YELLOW, f"RCV {idr_k(amount)}") if was_recovery
+                         else g(DIM, f"Bet {idr_k(amount)}"))
+
             print(
-                f"  {ikon} #{ronde} · "
+                f"  {ikon} #{ronde} · {bet_label} · "
                 f"Wgr {g(CYAN, idr_k(total_volume))} · "
                 f"Sld {g(CYAN, bal_k)} · "
                 f"Loss {g(loss_color, loss_k)} · "
