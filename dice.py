@@ -581,6 +581,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     rcv_losses        = 0               # Recovery gagal (kalah lagi)
     rcv_total_saved   = Decimal("0")    # Total loss yang berhasil diselamatkan recovery
 
+    # ── Profit Lock & Balance Tracking ───────────────────────────────────────
+    saldo_awal           = None              # Saldo sesi (dicatat dari bal pertama)
+    profit_lock_idr      = Decimal("20000")  # Stop-loss naik setiap saldo bertambah Rp 20.000
+    profit_lock_level    = 0                 # Sudah berapa kali profit lock naik
+    prev_bal             = None              # Saldo bet sebelumnya (validasi post-recovery)
+
     try:
         while True:
 
@@ -669,6 +675,42 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             bal_amount = next(
                 (b["available"]["amount"] for b in user_bals
                  if b["available"]["currency"] == currency), None)
+
+            bal_dec = to_dec(bal_amount) if bal_amount is not None else None
+
+            # ── Catat saldo awal sesi (sekali saja dari bet pertama) ──────────
+            if saldo_awal is None and bal_dec is not None:
+                saldo_awal = bal_dec
+
+            # ── Poin 4: Re-check Balance setelah Recovery (Anti-Lag) ─────────
+            # Setelah recovery bet selesai, pause 2 dtk + validasi saldo sinkron.
+            if was_recovery and bal_dec is not None:
+                if prev_bal is not None and bal_dec == prev_bal:
+                    print(g(YELLOW,
+                        "  ⚠️  Saldo tidak berubah post-recovery — "
+                        "kemungkinan lag server. Pause 2 detik..."
+                    ))
+                else:
+                    print(g(DIM, "  ⏳ Stabilisasi data post-recovery (2 detik)..."))
+                time.sleep(2)
+
+            # ── Poin 5: Profit Lock — naikkan stop-loss saat surplus +Rp20.000 ─
+            if saldo_awal is not None and bal_dec is not None:
+                surplus = bal_dec - saldo_awal
+                target_lock = profit_lock_idr * (profit_lock_level + 1)
+                if surplus >= target_lock:
+                    profit_lock_level += 1
+                    # Naikkan stop-loss mengikuti saldo baru
+                    max_loss_limit = total_loss + profit_lock_idr
+                    print(g(GREEN,
+                        f"\n  🔒 PROFIT LOCK #{profit_lock_level}: "
+                        f"Surplus +{idr_k(surplus)} IDR — "
+                        f"Stop-loss dinaikkan ke {fmt(max_loss_limit, currency)}\n"
+                    ))
+
+            # Simpan saldo ini untuk validasi recovery berikutnya
+            if bal_dec is not None:
+                prev_bal = bal_dec
 
             # ── Top-Up Alert: saldo < threshold → cetak sekali di terminal ─────
             if (
