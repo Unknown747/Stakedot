@@ -574,8 +574,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
     # ── Recovery state ────────────────────────────────────────────────────────
-    current_bet = base_bet   # Bet aktif saat ini
-    in_recovery = False      # True = giliran bet recovery sekarang (maks 1 klik)
+    current_bet       = base_bet        # Bet aktif saat ini
+    in_recovery       = False           # True = giliran bet recovery sekarang (maks 1 klik)
+    rcv_triggered     = 0               # Berapa kali recovery terpicu
+    rcv_wins          = 0               # Recovery berhasil (menang)
+    rcv_losses        = 0               # Recovery gagal (kalah lagi)
+    rcv_total_saved   = Decimal("0")    # Total loss yang berhasil diselamatkan recovery
 
     try:
         while True:
@@ -634,8 +638,11 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 in_recovery = False
                 current_bet = base_bet
                 if won:
+                    rcv_wins        += 1
+                    rcv_total_saved += profit   # profit positif = loss tertutupi
                     print(g(GREEN, f"  ✅ RECOVERY BERHASIL — kembali ke Base Bet {fmt(base_bet, currency)}"))
                 else:
+                    rcv_losses += 1
                     print(g(RED,
                         f"  ⚠️  Recovery kalah — loss diterima. "
                         f"Reset ke Base Bet {fmt(base_bet, currency)}  "
@@ -648,8 +655,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                     raw_rb      = base_bet * recovery_factor
                     current_bet = min(raw_rb, recovery_max_bet).quantize(
                                       _quanta(currency), rounding=ROUND_DOWN)
-                    in_recovery = True
-                    delay_sek   = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
+                    in_recovery   = True
+                    rcv_triggered += 1
+                    delay_sek     = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
                     print(g(YELLOW,
                         f"\n  ⚡ KALAH — jeda {delay_sek:.1f}d lalu tembak "
                         f"Recovery Bet {fmt(current_bet, currency)}...\n"
@@ -790,6 +798,21 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  {g(CYAN, '─' * 52)}")
     print(f"  {'Net Profit/Loss':<18} {g(net_color, BOLD + net_sign + fmt(net, currency) + R)}")
     print(f"  {g(CYAN, '─' * 52)}")
+
+    # ── Statistik Recovery ────────────────────────────────────────────────────
+    if recovery_enabled and rcv_triggered > 0:
+        rcv_rate     = (rcv_wins / rcv_triggered * 100) if rcv_triggered > 0 else 0
+        saved_color  = GREEN if rcv_total_saved > 0 else DIM
+        saved_sign   = "+" if rcv_total_saved >= 0 else ""
+        print(f"\n  {g(CYAN, '◆')} {g(BOLD, 'STATISTIK RECOVERY')}")
+        print(f"  {g(CYAN, '─' * 52)}")
+        print(f"  {'Terpicu':<18} {g(BOLD, str(rcv_triggered))} kali")
+        print(f"  {'Berhasil':<18} {g(GREEN, f'✅  {rcv_wins}')}  {g(DIM, f'({rcv_rate:.0f}%)')}")
+        print(f"  {'Gagal':<18} {g(RED,   f'⚠️   {rcv_losses}')}")
+        print(f"  {'Loss Diselamatkan':<18} {g(saved_color, saved_sign + fmt(rcv_total_saved, currency))}")
+        print(f"  {g(CYAN, '─' * 52)}")
+    elif recovery_enabled and rcv_triggered == 0:
+        print(g(DIM, f"\n  🛡  Recovery: tidak ada loss dalam sesi ini — 0 kali terpicu"))
 
     # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
     flag_before = flag_progress.get("flag") or "none"
