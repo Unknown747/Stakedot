@@ -20,7 +20,7 @@ Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `j
 ```python
 # ── Konfigurasi strategi ──────────────────────────────────────────────────
 currency            = "idr"
-base_bet            = Decimal("600")       # ← UBAH NILAI BET (Rp 400 / 600 / 800 / 1000)
+base_bet            = Decimal("400")       # ← UBAH NILAI BET (Rp 400 / 600 / 800 / 1000)
 rest_setiap_volume  = Decimal("5000000")   # ← Istirahat setiap X rupiah wager (default 5 juta)
 rest_menit_volume   = 15                   # ← Durasi istirahat checkpoint (menit)
 max_loss_limit      = Decimal("45000")     # ← Stop-loss: berhenti jika loss ≥ X (default 45 ribu)
@@ -166,7 +166,7 @@ Fitur otomatis:
 
 Seperti Mode 2 tapi **jalan sepenuhnya otomatis tanpa input**:
 
-- Tanya durasi istirahat antar sesi (default 60 menit)
+- Istirahat antar sesi otomatis 15 menit (hardcoded)
 - Setelah tiap sesi selesai: countdown istirahat → mulai sesi baru otomatis
 - Ctrl+C saat **betting** = keluar program
 - Ctrl+C saat **countdown** = skip istirahat, langsung sesi baru
