@@ -551,6 +551,8 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     next_million_notif   = Decimal("1000000")     # Milestone print di terminal tiap Rp1 juta wager
     _topup_notified      = False                  # Agar alert top-up hanya kirim sekali per sesi
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
+    take_profit_idr      = Decimal("5000")        # Jeda 5 dtk setiap kelipatan profit ini
+    next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
     try:
         while True:
@@ -670,6 +672,15 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                     f"\n  📈 Milestone {fmt(total_volume, currency)} wager tercapai! "
                     f"({bet_per_mnt:.1f} b/m)\n"
                 ))
+
+            # ── Cek take-profit: jeda 5 dtk setiap kelipatan Rp 5.000 profit ──
+            net_sesi = -total_loss
+            if net_sesi >= next_take_profit:
+                next_take_profit += take_profit_idr
+                print(g(GREEN,
+                    f"\n  💰 Profit +{idr_k(net_sesi)} IDR — jeda 5 detik...\n"
+                ))
+                time.sleep(5)
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:
