@@ -529,7 +529,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     # Desain: Kalah → tembak 1× bet besar untuk menutup loss → apapun hasilnya,
     #         langsung kembali ke base_bet. TIDAK ada eskalasi berlanjut.
     # Ref catatan: "Taruhan besar HANYA boleh bernyawa selama 1 klik."
-    recovery_enabled       = True              # ← False = flat bet tanpa recovery
+    recovery_enabled       = False             # ← False = flat bet tanpa recovery
     recovery_factor        = Decimal("50")     # ← Recovery bet = base_bet × 50 (5.000% dari base)
     recovery_max_bet       = Decimal("20000")  # ← Safety cap — bet recovery tidak boleh melebihi ini
     recovery_delay_min_sec = 3                 # ← Jeda minimum sebelum tembak recovery (detik)
