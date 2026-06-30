@@ -588,14 +588,15 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     rcv_total_saved   = Decimal("0")    # Total loss yang berhasil diselamatkan recovery
 
     # ── Anti-Spiral Protection (VPS auto-mode — script tidak pernah berhenti) ─
-    rcv_skip_spins       = 0            # Sisa spin tanpa recovery setelah rcv gagal
-    rcv_skip_after       = 2            # Skip recovery N spin setelah rcv gagal
-    rcv_fail_streak      = 0            # Counter beruntun recovery gagal berturut-turut
-    rcv_fail_streak_max  = 2            # Setelah N beruntun gagal → cooldown menengah
+    rcv_skip_spins       = 0            # Sisa spin hukuman — turun 1 tiap spin (WIN maupun LOSE)
+    rcv_skip_after       = 2            # Jumlah spin hukuman setelah rcv gagal
+    rcv_fail_streak      = 0            # Counter bet Rp10k gagal berturut-turut (tanpa rcv menang di antara)
+    rcv_fail_streak_max  = 2            # Streak Guard aktif setelah N bet Rp10k gagal berturut-turut
     rcv_fail_pause_sec   = 15           # Pause setelah 1× recovery gagal (detik)
-    rcv_streak_pause_min = 1            # Cooldown menit setelah streak gagal
-    rcv_mega_limit       = 5            # Setelah N gagal total → mega cooldown
-    rcv_mega_pause_min   = 5            # Mega cooldown (menit)
+    rcv_streak_pause_min = 1            # Cooldown menit setelah streak Rp10k gagal
+    rcv_mega_limit       = 5            # Mega cooldown setiap N bet Rp10k gagal (counter reset setelah cooldown)
+    rcv_mega_pause_min   = 5            # Durasi mega cooldown (menit)
+    rcv_mega_counter     = 0            # Counter khusus Lapis 3 — reset ke 0 setelah mega cooldown selesai
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None              # Saldo sesi (dicatat dari bal pertama)
@@ -667,55 +668,58 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 else:
                     rcv_losses      += 1
                     rcv_fail_streak += 1
-                    rcv_skip_spins   = rcv_skip_after  # Skip recovery N spin berikutnya
+                    rcv_mega_counter += 1
+                    rcv_skip_spins   = rcv_skip_after  # Kunci recovery N spin ke depan
                     print(g(RED,
                         f"  ⚠️  Recovery kalah — loss diterima. "
                         f"Reset ke Base Bet {fmt(base_bet, currency)}  "
-                        f"(skip recovery {rcv_skip_after} spin berikutnya)"
+                        f"(kunci recovery {rcv_skip_after} spin berikutnya)"
                     ))
-                    # Pause lebih lama setelah recovery gagal
+                    # Lapis 1 — Pause wajib setelah recovery gagal
                     print(g(YELLOW, f"  ⏸  Anti-Spiral: jeda {rcv_fail_pause_sec}d..."))
                     time.sleep(rcv_fail_pause_sec)
 
-                    # Streak Guard: cooldown jika N× gagal berturut-turut
+                    # Lapis 2 — Streak Guard: N× bet Rp10k gagal berturut-turut tanpa rcv menang
                     if rcv_fail_streak >= rcv_fail_streak_max:
                         print(g(RED,
-                            f"\n  🌡️  STREAK GUARD: {rcv_fail_streak}× recovery gagal beruntun — "
+                            f"\n  🌡️  STREAK GUARD: {rcv_fail_streak}× bet Rp10k gagal beruntun — "
                             f"cooldown {rcv_streak_pause_min} menit...\n"
                         ))
                         rest_countdown(rcv_streak_pause_min)
-                        rcv_fail_streak = 0
+                        rcv_fail_streak = 0   # Reset streak, bukan rcv_mega_counter
 
-                    # Mega Cooldown: setiap kelipatan rcv_mega_limit gagal total
-                    if rcv_losses > 0 and rcv_losses % rcv_mega_limit == 0:
+                    # Lapis 3 — Mega Cooldown: setiap rcv_mega_limit kali gagal (counter reset setelah istirahat)
+                    if rcv_mega_counter >= rcv_mega_limit:
                         print(g(RED,
-                            f"\n  🛑  MEGA COOLDOWN: {rcv_losses}× recovery gagal sesi ini — "
+                            f"\n  🛑  MEGA COOLDOWN: {rcv_mega_counter}× recovery gagal — "
                             f"istirahat {rcv_mega_pause_min} menit...\n"
                         ))
                         rest_countdown(rcv_mega_pause_min)
+                        rcv_mega_counter = 0  # Reset setelah cooldown selesai
             else:
                 # Giliran ini adalah bet normal
-                if not won and recovery_enabled:
-                    if rcv_skip_spins > 0:
-                        # Cooling period — lewati recovery, bet base saja
-                        rcv_skip_spins -= 1
+                if rcv_skip_spins > 0:
+                    # ── Spin hukuman aktif: turun 1 tiap spin (WIN maupun LOSE) ──
+                    # Recovery DIKUNCI. Kalau kalah, cukup terima -Rp200, tidak tembak Rp10k.
+                    rcv_skip_spins -= 1
+                    if not won:
                         print(g(DIM,
-                            f"  ⏭  Anti-Spiral: skip recovery "
-                            f"({rcv_skip_spins} spin cooling sisa)"
+                            f"  ⏭  Spin hukuman: recovery dikunci "
+                            f"({rcv_skip_spins} spin sisa) — loss Rp200 diterima"
                         ))
-                    else:
-                        # Hitung bet recovery (50× base, dibatasi safety cap)
-                        raw_rb      = base_bet * recovery_factor
-                        current_bet = min(raw_rb, recovery_max_bet).quantize(
-                                          _quanta(currency), rounding=ROUND_DOWN)
-                        in_recovery   = True
-                        rcv_triggered += 1
-                        delay_sek     = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
-                        print(g(YELLOW,
-                            f"\n  ⚡ KALAH — jeda {delay_sek:.1f}d lalu tembak "
-                            f"Recovery Bet {fmt(current_bet, currency)}...\n"
-                        ))
-                        time.sleep(delay_sek)
+                elif not won and recovery_enabled:
+                    # ── Normal: kalah → tembak recovery ──────────────────────────
+                    raw_rb      = base_bet * recovery_factor
+                    current_bet = min(raw_rb, recovery_max_bet).quantize(
+                                      _quanta(currency), rounding=ROUND_DOWN)
+                    in_recovery   = True
+                    rcv_triggered += 1
+                    delay_sek     = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
+                    print(g(YELLOW,
+                        f"\n  ⚡ KALAH — jeda {delay_sek:.1f}d lalu tembak "
+                        f"Recovery Bet {fmt(current_bet, currency)}...\n"
+                    ))
+                    time.sleep(delay_sek)
 
             # ── Ambil saldo terkini ───────────────────────────────────────────
             user_bals  = roll.get("user", {}).get("balances", [])
