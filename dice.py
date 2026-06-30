@@ -178,19 +178,6 @@ def gql(query, variables=None):
 
 # ─── Helper ────────────────────────────────────────────────────────────────────
 
-CURRENCY_LIST = {
-    "1":  "btc",
-    "2":  "eth",
-    "3":  "ltc",
-    "4":  "doge",
-    "5":  "xrp",
-    "6":  "trx",
-    "7":  "usdt",
-    "8":  "usdc",
-    "9":  "bnb",
-    "10": "idr",
-}
-
 # Presisi desimal per currency
 CURRENCY_DECIMALS = {
     "btc": 8, "eth": 8, "ltc": 8, "bch": 8,
@@ -247,59 +234,6 @@ def determine_win(roll_result: dict) -> bool:
     except (KeyError, TypeError, InvalidOperation):
         pass
     return False
-
-
-def ask(prompt, validator=None, default=None):
-    """Tanya input dengan validasi opsional."""
-    while True:
-        try:
-            raw = input(g(YELLOW, prompt)).strip()
-            if not raw and default is not None:
-                return default
-            if validator:
-                result = validator(raw)
-                if result is not None:
-                    return result
-                print(g(RED, "  ✗ Input tidak valid, coba lagi."))
-            else:
-                return raw
-        except (EOFError, KeyboardInterrupt):
-            print()
-            sys.exit(0)
-
-
-def val_float_positive(s):
-    try:
-        d = Decimal(s)
-        return d if d > 0 else None
-    except InvalidOperation:
-        return None
-
-
-def val_target(s):
-    try:
-        v = float(s)
-        return v if 1.01 <= v <= 97.99 else None
-    except ValueError:
-        return None
-
-
-def val_int_nonneg(s):
-    try:
-        v = int(s)
-        return v if v >= 0 else None
-    except ValueError:
-        return None
-
-
-def val_float_nonneg_or_empty(s):
-    if s == "":
-        return "__empty__"
-    try:
-        d = Decimal(s)
-        return d if d > 0 else None
-    except InvalidOperation:
-        return None
 
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
@@ -435,31 +369,6 @@ def print_banner():
 def print_section(title):
     print(f"\n  {g(CYAN, '◆')} {g(BOLD, title)}")
     print(f"  {g(CYAN, '─' * 52)}")
-
-
-def print_summary(stats, currency):
-    print_section("RINGKASAN SESI")
-    total    = stats["total"]
-    wins     = stats["wins"]
-    losses   = stats["losses"]
-    profit   = stats["profit"]
-    win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
-
-    profit_color = GREEN if profit >= 0 else RED
-    sign         = "+" if profit >= 0 else ""
-
-    max_ws = stats["max_win_streak"]
-    max_ls = stats["max_loss_streak"]
-    sep    = g(CYAN, "─" * 52)
-    print(f"  {'Ronde dimainkan':<18} {g(BOLD, str(total))}")
-    print(f"  {'Menang':<18} {g(GREEN, '✅  ' + str(wins))}")
-    print(f"  {'Kalah':<18} {g(RED, '❌  ' + str(losses))}")
-    print(f"  {'Win Rate':<18} {g(BOLD, str(win_rate.quantize(Decimal('0.1'))) + '%')}")
-    print(f"  {'Max Win Streak':<18} {g(GREEN, '🔥 ' + str(max_ws))}")
-    print(f"  {'Max Loss Streak':<18} {g(RED, '💧 ' + str(max_ls))}")
-    print(f"  {sep}")
-    print(f"  {'Total Profit':<18} {g(profit_color, BOLD + sign + fmt(profit, currency) + R)}")
-    print(f"  {sep}")
 
 
 # ─── Strategy VIP ─────────────────────────────────────────────────────────────
