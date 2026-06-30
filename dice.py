@@ -535,6 +535,14 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     recovery_delay_min_sec = 3                 # ← Jeda minimum sebelum tembak recovery (detik)
     recovery_delay_max_sec = 5                 # ← Jeda maksimum sebelum tembak recovery (detik)
 
+    # ── Konfigurasi Anti-Spiral Protection ───────────────────────────────────
+    rcv_skip_after       = 2            # Jumlah spin hukuman setelah rcv gagal
+    rcv_fail_streak_max  = 2            # Streak Guard aktif setelah N bet Rp10k gagal berturut-turut
+    rcv_fail_pause_sec   = 15           # Pause setelah 1× recovery gagal (detik)
+    rcv_streak_pause_min = 1            # Cooldown menit setelah streak Rp10k gagal
+    rcv_mega_limit       = 5            # Mega cooldown setiap N bet Rp10k gagal (counter reset setelah cooldown)
+    rcv_mega_pause_min   = 5            # Durasi mega cooldown (menit)
+
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
     print_vip_status(flag_progress)
@@ -587,15 +595,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     rcv_losses        = 0               # Recovery gagal (kalah lagi)
     rcv_total_saved   = Decimal("0")    # Total loss yang berhasil diselamatkan recovery
 
-    # ── Anti-Spiral Protection (VPS auto-mode — script tidak pernah berhenti) ─
+    # ── Anti-Spiral state counters (config ada di blok konfigurasi di atas) ──
     rcv_skip_spins       = 0            # Sisa spin hukuman — turun 1 tiap spin (WIN maupun LOSE)
-    rcv_skip_after       = 2            # Jumlah spin hukuman setelah rcv gagal
     rcv_fail_streak      = 0            # Counter bet Rp10k gagal berturut-turut (tanpa rcv menang di antara)
-    rcv_fail_streak_max  = 2            # Streak Guard aktif setelah N bet Rp10k gagal berturut-turut
-    rcv_fail_pause_sec   = 15           # Pause setelah 1× recovery gagal (detik)
-    rcv_streak_pause_min = 1            # Cooldown menit setelah streak Rp10k gagal
-    rcv_mega_limit       = 5            # Mega cooldown setiap N bet Rp10k gagal (counter reset setelah cooldown)
-    rcv_mega_pause_min   = 5            # Durasi mega cooldown (menit)
     rcv_mega_counter     = 0            # Counter khusus Lapis 3 — reset ke 0 setelah mega cooldown selesai
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
