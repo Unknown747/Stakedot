@@ -391,7 +391,15 @@ def simpan_log_csv(sesi: dict):
         writer.writerow(sesi)
 
 
+def clear_screen():
+    """Bersihkan layar terminal agar tampilan selalu fresh setiap sesi/restart.
+    Pakai ANSI escape (bukan os.system) — lebih cepat & tetap aman kalau
+    output di-pipe/redirect ke file (tidak error, cuma escape code ikut tertulis)."""
+    print("\033[H\033[2J\033[3J", end="")
+
+
 def print_banner():
+    clear_screen()
     now = datetime.now().strftime("%d %b %Y  %H:%M")
     print(g(CYAN, """
   ╔═════════════════════════════════════════════════════╗
@@ -923,6 +931,7 @@ def main():
     rest_menit = int(CONFIG["rest_menit_antar_sesi"])
     sesi_ke    = 1
     while True:
+        clear_screen()  # Layar fresh setiap sesi baru — tidak numpuk log lama di terminal
         waktu_mulai = datetime.now().strftime("%d/%m %H:%M")
         print(g(CYAN, f"\n  ╔═══ SESI #{sesi_ke}  ·  {waktu_mulai} ═══╗"))
 
