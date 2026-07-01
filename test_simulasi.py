@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Simulasi 1000 Spin — LIMBO (dry-run, TANPA uang asli)
+Simulasi Spin — LIMBO (dry-run, TANPA uang asli)
 Menguji logika betting (on-loss multiply, stop-loss, profit lock, VIP math)
 dari main.py memakai RNG lokal — tidak memanggil API Stake.com sama sekali.
+
+Simulasi dijalankan dengan saldo awal tertentu (default Rp 200.000) dan
+berhenti otomatis kalau saldo sudah tidak cukup untuk bet berikutnya,
+persis seperti yang akan terjadi di akun asli.
 """
 
+import sys
 import random
 from decimal import Decimal, ROUND_DOWN
-from collections import Counter
 
 from main import (
     determine_win_limbo, to_dec, fmt, _quanta,
@@ -26,7 +30,8 @@ def header(title):
 
 
 # ── Konfigurasi strategi — HARUS identik dengan jalankan_strategy_vip() ───────
-N_SPIN            = 1000
+N_SPIN_MAX        = 1000                      # batas maksimum spin per run
+SALDO_AWAL        = Decimal(sys.argv[1]) if len(sys.argv) > 1 else Decimal("200000")
 currency          = "idr"
 base_bet          = Decimal("1000")
 win_chance_pct    = Decimal("98")
@@ -40,17 +45,13 @@ on_loss_multiply_enabled = True
 on_loss_multiply_pct     = Decimal("2")
 on_loss_multiply_cap     = base_bet * Decimal("5")
 
-# ── Fungsi simulasi hasil roll (menggantikan panggilan API) ───────────────────
-# House edge 1% ditiru dengan win probability nyata = win_chance_pct% (98%),
-# konsisten dengan cara Stake menghitung provably-fair result vs multiplierTarget.
-WIN_PROB = float(win_chance_pct) / 100.0
+WIN_PROB = float(win_chance_pct) / 100.0   # probabilitas menang nyata = win_chance_pct%
 
 
 def simulasi_roll(bet: Decimal):
     """Tiru satu limboBet API call secara lokal. Return dict roll-like."""
     menang = random.random() < WIN_PROB
     if menang:
-        # Result acak di atas target (biar determine_win_limbo tetap valid)
         result = float(multiplier_target) + random.uniform(0, 5)
         payout = (bet * multiplier_target).quantize(_quanta(currency), rounding=ROUND_DOWN)
     else:
@@ -64,32 +65,40 @@ def simulasi_roll(bet: Decimal):
 
 
 def main():
-    header(f"SIMULASI {N_SPIN} SPIN — LIMBO (DRY-RUN, TANPA UANG ASLI)")
+    header(f"SIMULASI DRY-RUN — LIMBO (SALDO AWAL {fmt(SALDO_AWAL, currency)})")
     print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}")
     print(f"  Win Chance    : {g(BOLD, f'{win_chance_pct}%')}  |  Target: {g(BOLD, f'{multiplier_target}x')}")
-    print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))}")
+    print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))}  {g(DIM, '(sesi berhenti sementara lalu reset, bukan berhenti total)')}")
     print(f"  On-Loss Mult. : +{on_loss_multiply_pct}% tiap kalah, cap {fmt(on_loss_multiply_cap, currency)}")
+    print(f"  Batas spin    : {g(BOLD, str(N_SPIN_MAX))}  {g(DIM, '(atau berhenti lebih awal kalau saldo habis)')}")
     print(g(DIM, "  (Semua angka di bawah adalah hasil RNG lokal, bukan hasil API Stake.com)\n"))
 
+    saldo               = SALDO_AWAL
     total_volume        = Decimal("0")
-    total_loss          = Decimal("0")
-    wins = losses       = 0
-    current_bet         = base_bet
-    loss_streak         = 0
-    max_loss_streak     = 0
-    max_bet_reached     = base_bet
-    cap_hit_count       = 0
-    stoploss_hits       = 0
-    profit_lock_level   = 0
-    saldo_virtual       = Decimal("500000")   # saldo virtual awal, hanya utk cek top-up/lock
-    saldo_awal          = saldo_virtual
+    total_loss          = Decimal("0")           # loss berjalan dalam 1 sesi (di-reset saat stop-loss kena)
+    wins = losses        = 0
+    current_bet          = base_bet
+    loss_streak          = 0
+    max_loss_streak      = 0
+    max_bet_reached      = base_bet
+    cap_hit_count        = 0
+    stoploss_hits        = 0
+    profit_lock_level    = 0
+    saldo_acuan_lock     = saldo                  # acuan profit-lock, direset tiap sesi baru
     next_rest_checkpoint = rest_setiap_volume
-    checkpoint_hits     = 0
-    ronde               = 0
-    hasil_per_100        = []   # win-rate tiap blok 100 ronde, utk cek konsistensi RNG
-    blok_win = 0
+    checkpoint_hits      = 0
+    ronde                = 0
+    saldo_habis          = False
+    sesi_log             = []                     # ringkasan tiap sesi (antar stop-loss)
+    sesi_wins = sesi_losses = 0
+    sesi_ke               = 1
 
-    while ronde < N_SPIN:
+    while ronde < N_SPIN_MAX:
+        # ── Cek saldo cukup untuk bet berikutnya ────────────────────────────
+        if saldo < current_bet:
+            saldo_habis = True
+            break
+
         ronde += 1
         roll   = simulasi_roll(current_bet)
 
@@ -99,15 +108,16 @@ def main():
         profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
         won    = determine_win_limbo(state)
 
-        total_volume  += current_bet
-        total_loss    -= profit
-        saldo_virtual += profit
+        total_volume += current_bet
+        total_loss   -= profit
+        saldo        += profit
 
         if won:
             wins += 1
-            blok_win += 1
+            sesi_wins += 1
         else:
             losses += 1
+            sesi_losses += 1
 
         # ── Reuse persis logika on-loss-multiply dari main.py ───────────────
         if won:
@@ -124,15 +134,21 @@ def main():
                 current_bet = naik.quantize(_quanta(currency), rounding=ROUND_DOWN)
             max_bet_reached = max(max_bet_reached, current_bet)
 
-        # ── Cek stop-loss (sama seperti sesi asli — hitung, lalu reset sesi) ─
+        # ── Cek stop-loss → tutup sesi ini, catat ringkasan, mulai sesi baru ─
         if total_loss >= max_loss_limit:
             stoploss_hits += 1
+            sesi_log.append({
+                "sesi": sesi_ke, "wins": sesi_wins, "losses": sesi_losses,
+                "loss_idr": total_loss, "saldo_akhir": saldo,
+            })
+            sesi_ke += 1
+            sesi_wins = sesi_losses = 0
             total_loss  = Decimal("0")
             current_bet = base_bet
             loss_streak = 0
 
         # ── Cek profit lock ───────────────────────────────────────────────
-        surplus     = saldo_virtual - saldo_awal
+        surplus     = saldo - saldo_acuan_lock
         target_lock = profit_lock_idr * (profit_lock_level + 1)
         if surplus >= target_lock:
             profit_lock_level += 1
@@ -142,58 +158,57 @@ def main():
             next_rest_checkpoint += rest_setiap_volume
             checkpoint_hits += 1
 
-        if ronde % 100 == 0:
-            hasil_per_100.append(blok_win)
-            blok_win = 0
+    # Tutup sesi terakhir yang belum kena stop-loss (kalau ada aktivitas)
+    if sesi_wins + sesi_losses > 0:
+        sesi_log.append({
+            "sesi": sesi_ke, "wins": sesi_wins, "losses": sesi_losses,
+            "loss_idr": total_loss, "saldo_akhir": saldo,
+        })
 
     # ── Ringkasan hasil ────────────────────────────────────────────────────
     total    = wins + losses
     win_rate = (Decimal(wins) / Decimal(total) * 100) if total else Decimal("0")
-    net      = -total_loss
+    net      = saldo - SALDO_AWAL
 
-    header("RINGKASAN SIMULASI")
-    print(f"  Ronde dimainkan   : {g(BOLD, str(total))}")
-    print(f"  Menang / Kalah    : {g(GREEN, str(wins))} / {g(RED, str(losses))}")
+    header("RINCIAN PER SESI (antar stop-loss)")
+    print(f"  {'Sesi':<6}{'Menang':<10}{'Kalah':<10}{'Loss Sesi':<16}{'Saldo Akhir':<16}")
+    for s in sesi_log:
+        loss_str = fmt(s["loss_idr"], currency)
+        saldo_str = fmt(s["saldo_akhir"], currency)
+        print(f"  {s['sesi']:<6}{s['wins']:<10}{s['losses']:<10}{loss_str:<16}{saldo_str:<16}")
+
+    header("RINGKASAN TOTAL")
+    print(f"  Saldo awal        : {g(BOLD, fmt(SALDO_AWAL, currency))}")
+    print(f"  Saldo akhir       : {g(BOLD, fmt(saldo, currency))}")
+    print(f"  Ronde dimainkan   : {g(BOLD, str(total))} {g(DIM, f'dari maks {N_SPIN_MAX}')}")
+    print(f"  Menang            : {g(GREEN, str(wins))} kali")
+    print(f"  Kalah             : {g(RED, str(losses))} kali")
     print(f"  Win Rate          : {g(BOLD, f'{win_rate:.2f}%')}  {g(DIM, '(target teoritis: 98.00%)')}")
     print(f"  Total Volume      : {g(CYAN, fmt(total_volume, currency))}")
     net_color = GREEN if net >= 0 else RED
-    print(f"  Net P/L (RNG run) : {g(net_color, ('+' if net >= 0 else '') + fmt(net, currency))}")
-    print(f"  Checkpoint volume tercapai : {checkpoint_hits}x (setiap {fmt(rest_setiap_volume, currency)})")
-    print(f"  Stop-loss terpicu          : {stoploss_hits}x (limit {fmt(max_loss_limit, currency)})")
-    print(f"  Profit-lock level tercapai : {profit_lock_level}x")
-    print(f"  Loss streak terpanjang     : {max_loss_streak}x")
-    print(f"  Bet tertinggi dipasang     : {fmt(max_bet_reached, currency)}")
-    print(f"  Bet kena cap (5x)          : {cap_hit_count}x")
-
-    header("VALIDASI KONSISTENSI RNG (per blok 100 spin)")
-    for i, w in enumerate(hasil_per_100, start=1):
-        print(f"  Blok {i:>2} (#{ (i-1)*100+1 }-{i*100:>4}) : {w}/100 menang ({w:.0f}%)")
+    print(f"  Net P/L           : {g(net_color, ('+' if net >= 0 else '') + fmt(net, currency))}")
+    print(f"  Jumlah sesi       : {len(sesi_log)}  {g(DIM, f'(stop-loss terpicu {stoploss_hits}x)')}")
+    print(f"  Profit-lock level : {profit_lock_level}x")
+    print(f"  Loss streak terpanjang : {max_loss_streak}x")
+    print(f"  Bet tertinggi dipasang : {fmt(max_bet_reached, currency)}")
+    print(f"  Bet kena cap (5x)      : {cap_hit_count}x")
 
     header("HASIL AKHIR")
-    checks_ok = True
-    if not (90 <= float(win_rate) <= 100):
-        checks_ok = False
-        print(g(RED, f"  ❌ Win rate {win_rate:.2f}% jauh dari target 98% — cek determine_win_limbo/simulasi"))
-    else:
+    if saldo_habis:
+        print(g(RED, f"  ⚠️  Saldo HABIS setelah {total} spin — sisa {fmt(saldo, currency)} tidak cukup untuk bet {fmt(current_bet, currency)}."))
+    elif total == N_SPIN_MAX:
+        print(g(GREEN, f"  ✅ Saldo {fmt(SALDO_AWAL, currency)} berhasil bertahan sampai {N_SPIN_MAX} spin."))
+
+    if not (90 <= float(win_rate) <= 100) and total > 0:
+        print(g(RED, f"  ❌ Win rate {win_rate:.2f}% jauh dari target 98% — cek logika simulasi"))
+    elif total > 0:
         print(g(GREEN, f"  ✅ Win rate {win_rate:.2f}% masuk rentang wajar (target statistik: 98%)"))
 
-    if total == N_SPIN:
-        print(g(GREEN, f"  ✅ Semua {N_SPIN} spin selesai tanpa crash"))
-    else:
-        checks_ok = False
-        print(g(RED, f"  ❌ Hanya {total}/{N_SPIN} spin selesai"))
-
-    if cap_hit_count >= 0 and max_bet_reached <= on_loss_multiply_cap:
+    if max_bet_reached <= on_loss_multiply_cap:
         print(g(GREEN, "  ✅ On-Loss Multiply tidak pernah melebihi cap 5x base bet"))
     else:
-        checks_ok = False
         print(g(RED, "  ❌ Bet melebihi cap — bug pada logika on-loss-multiply!"))
 
-    print()
-    if checks_ok:
-        print(g(GREEN, g(BOLD, "  🎉 SIMULASI 1000 SPIN LULUS — logika betting main.py aman untuk live run.")))
-    else:
-        print(g(RED, g(BOLD, "  ⚠️  Ada anomali pada simulasi — cek log di atas sebelum live run.")))
     print(g(DIM, "\n  Catatan: ini simulasi RNG lokal, TIDAK memanggil API Stake.com / tidak ada uang asli terpakai.\n"))
 
 
