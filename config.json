@@ -1,0 +1,18 @@
+{
+  "currency": "idr",
+  "base_bet": "500",
+  "win_chance_pct": "98",
+  "rest_setiap_volume": "2500000",
+  "rest_menit_volume": 15,
+  "max_loss_limit": "22500",
+  "topup_alert_idr": "37500",
+  "profit_lock_idr": "10000",
+  "take_profit_idr": "2500",
+  "on_loss_multiply_enabled": true,
+  "on_loss_multiply_pct": "2",
+  "on_loss_multiply_cap_multiplier": "5",
+  "rest_menit_antar_sesi": 15,
+  "max_consecutive_errors": 5,
+  "restart_delay_detik": 60,
+  "max_restart_attempts": 10
+}

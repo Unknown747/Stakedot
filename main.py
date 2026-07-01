@@ -11,6 +11,7 @@ try:
 except ImportError:
     pass  # python-dotenv tidak wajib — gunakan export STAKE_API_KEY=... di terminal
 import sys
+import json
 import uuid
 import time
 import random
@@ -35,7 +36,52 @@ HEADERS = {
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
-MAX_CONSECUTIVE_ERRORS = 5  # Berhenti jika gagal N kali berturut-turut
+# ─── Konfigurasi strategi (dimuat dari config.json) ────────────────────────────
+# Semua nilai yang sering diubah (bet, stop-loss, dll) ada di config.json,
+# TIDAK lagi hardcode di dalam kode. Edit config.json untuk mengubah setting.
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+_DEFAULT_CONFIG = {
+    "currency":                        "idr",
+    "base_bet":                        "500",
+    "win_chance_pct":                  "98",
+    "rest_setiap_volume":              "2500000",
+    "rest_menit_volume":               15,
+    "max_loss_limit":                  "22500",
+    "topup_alert_idr":                 "37500",
+    "profit_lock_idr":                 "10000",
+    "take_profit_idr":                 "2500",
+    "on_loss_multiply_enabled":        True,
+    "on_loss_multiply_pct":            "2",
+    "on_loss_multiply_cap_multiplier": "5",
+    "rest_menit_antar_sesi":           15,
+    "max_consecutive_errors":          5,
+    "restart_delay_detik":             60,
+    "max_restart_attempts":            10,
+}
+
+
+def load_config():
+    """Muat config.json; fallback ke default kalau file tidak ada/rusak.
+    Key yang hilang di config.json tetap diisi dari default (merge)."""
+    if not os.path.exists(CONFIG_PATH):
+        print(f"⚠️  config.json tidak ditemukan di {CONFIG_PATH} — pakai nilai default.")
+        return dict(_DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("config.json harus berisi objek JSON (key-value)")
+        return {**_DEFAULT_CONFIG, **data}
+    except (json.JSONDecodeError, ValueError, OSError) as e:
+        print(f"❌ config.json error ({e}) — pakai nilai default sebagai fallback.")
+        return dict(_DEFAULT_CONFIG)
+
+
+CONFIG = load_config()
+
+MAX_CONSECUTIVE_ERRORS = int(CONFIG["max_consecutive_errors"])  # Berhenti jika gagal N kali berturut-turut
 
 # ─── Warna Terminal ────────────────────────────────────────────────────────────
 
@@ -421,14 +467,14 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
     Returns True jika ingin lanjut sesi baru, False jika user Ctrl+C.
     """
 
-    # ── Konfigurasi strategi ──────────────────────────────────────────────────
-    currency            = "idr"
-    base_bet            = Decimal("500")       # ← Base Bet Rp 500 (diturunkan utk ketahanan saldo)
-    rest_setiap_volume  = Decimal("2500000")   # Istirahat 15 menit setiap Rp 2,5 juta wager
-    rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
-    max_loss_limit      = Decimal("22500")     # Stop-loss: berhenti jika loss ≥ Rp 22,5 ribu
-    topup_alert_idr     = Decimal("37500")     # ← Warning terminal jika saldo < X (Rp 37,5 ribu)
-    win_chance_pct      = Decimal("98")
+    # ── Konfigurasi strategi (dari config.json — TIDAK hardcode) ─────────────
+    currency            = CONFIG["currency"]
+    base_bet            = Decimal(str(CONFIG["base_bet"]))
+    rest_setiap_volume  = Decimal(str(CONFIG["rest_setiap_volume"]))
+    rest_menit_volume   = int(CONFIG["rest_menit_volume"])
+    max_loss_limit      = Decimal(str(CONFIG["max_loss_limit"]))
+    topup_alert_idr     = Decimal(str(CONFIG["topup_alert_idr"]))
+    win_chance_pct      = Decimal(str(CONFIG["win_chance_pct"]))
     multiplier_target   = (Decimal("99") / win_chance_pct).quantize(
                               Decimal("0.0001"), rounding=ROUND_DOWN)   # ≈ 1.0102x
 
@@ -436,9 +482,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
     # Desain: kalah → bet naik 2% (BUKAN martingale 100%). Menang → langsung
     # kembali ke Base Bet. Pertumbuhan geometris lambat sehingga modal tetap
     # aman walau kena losing streak panjang. Ada cap keras agar tidak liar.
-    on_loss_multiply_enabled = True
-    on_loss_multiply_pct     = Decimal("2")               # ← Naik 2% tiap kalah
-    on_loss_multiply_cap     = base_bet * Decimal("5")    # ← Cap keras: maks 5× Base Bet
+    on_loss_multiply_enabled = bool(CONFIG["on_loss_multiply_enabled"])
+    on_loss_multiply_pct     = Decimal(str(CONFIG["on_loss_multiply_pct"]))
+    on_loss_multiply_cap     = base_bet * Decimal(str(CONFIG["on_loss_multiply_cap_multiplier"]))
 
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
@@ -448,8 +494,8 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
     print_section("STRATEGY VIP — LIMBO 98% WIN CHANCE  (SPEED MODE)")
     print(f"  Game          : {g(BOLD, 'LIMBO')}  {g(DIM, '(via API — otomatis instant, tanpa animasi)')}")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
-    print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah variabel base_bet')}")
-    print(f"  Win Chance    : {g(BOLD, '98%')}  |  Target Multiplier: {g(BOLD, f'{multiplier_target}x')}")
+    print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
+    print(f"  Win Chance    : {g(BOLD, f'{win_chance_pct}%')}  |  Target Multiplier: {g(BOLD, f'{multiplier_target}x')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
     if on_loss_multiply_enabled:
@@ -469,11 +515,12 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
     consecutive_err      = 0
     ronde                = 0
     stopped_by_user      = False
+    sudah_istirahat_internal = False  # True jika sesi ini sudah istirahat sendiri (stop-loss) — cegah istirahat dobel di caller vps_mode
     next_rest_checkpoint = rest_setiap_volume     # Checkpoint volume berikutnya
     next_million_notif   = Decimal("1000000")     # Milestone print di terminal tiap Rp1 juta wager
     _topup_notified      = False                  # Agar alert top-up hanya kirim sekali per sesi
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
-    take_profit_idr      = Decimal("2500")        # Jeda 5 dtk setiap kelipatan profit ini
+    take_profit_idr      = Decimal(str(CONFIG["take_profit_idr"]))  # Jeda 5 dtk setiap kelipatan profit ini
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
     # ── On-Loss Multiply state ────────────────────────────────────────────────
@@ -485,7 +532,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None              # Saldo sesi (dicatat dari bal pertama)
-    profit_lock_idr      = Decimal("10000")  # Stop-loss naik setiap saldo bertambah Rp 10.000
+    profit_lock_idr      = Decimal(str(CONFIG["profit_lock_idr"]))  # Stop-loss naik setiap saldo bertambah Rp X
     profit_lock_level    = 0                 # Sudah berapa kali profit lock naik
 
     try:
@@ -669,6 +716,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
                     f"Istirahat {jeda} menit untuk mengamankan modal..."
                 ))
                 rest_countdown(jeda)
+                sudah_istirahat_internal = True
                 break
 
             # ── Cek checkpoint volume → istirahat 15 menit lalu lanjut ───────
@@ -771,7 +819,10 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | 
 
     # ── VPS mode: auto-continue, istirahat dikelola oleh caller ─────────────
     if vps_mode:
-        return not stopped_by_user  # False jika user Ctrl+C = berhenti total
+        # Tuple (lanjut, sudah_istirahat_internal) — caller pakai flag kedua
+        # untuk skip istirahat tambahan kalau sesi ini sudah istirahat sendiri
+        # (misal karena stop-loss), jadi tidak dobel istirahat.
+        return (not stopped_by_user), sudah_istirahat_internal  # lanjut=False jika user Ctrl+C = berhenti total
 
     # ── Tanya apakah mau mulai sesi baru (mode normal) ───────────────────────
     print()
