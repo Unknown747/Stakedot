@@ -15,7 +15,7 @@
 
 ## 1. Konfigurasi Cepat (Edit di Sini)
 
-Semua variabel yang sering diubah ada di **satu blok** dalam `dice.py` fungsi `jalankan_strategy_vip()`:
+Semua variabel yang sering diubah ada di **satu blok** dalam `main.py` fungsi `jalankan_strategy_vip()`:
 
 ```python
 # ── Konfigurasi strategi ──────────────────────────────────────────────────
@@ -101,7 +101,7 @@ pip3 install requests
 
 ### Jalankan script
 ```bash
-python3 dice.py
+python3 main.py
 ```
 
 Tidak ada menu, tidak ada input apapun — bot langsung masuk ke mode **Auto-Run** begitu dijalankan.
@@ -110,7 +110,7 @@ Tidak ada menu, tidak ada input apapun — bot langsung masuk ke mode **Auto-Run
 
 ## 4. Cara Kerja Bot (Auto-Run)
 
-Bot ini hanya bermain game **Limbo** (game Dice sudah dihapus total dari script).
+Bot ini hanya bermain game **Limbo** (mode game Dice lama sudah dihapus total dari script).
 
 | Setting | Nilai |
 |---|---|
@@ -193,7 +193,7 @@ source ~/.bashrc
 ### Jalankan di background (tetap jalan walau SSH ditutup):
 ```bash
 screen -S stake          # buka sesi background
-python3 dice.py          # bot langsung auto-run, tanpa menu
+python3 main.py          # bot langsung auto-run, tanpa menu
 
 Ctrl+A lalu D            # detach (biarkan jalan di background)
 ```
@@ -247,7 +247,7 @@ Ctrl+A lalu D            # detach (biarkan jalan di background)
 
 ```
 /
-├── dice.py              ← Script utama (edit variabel di jalankan_strategy_vip)
+├── main.py              ← Script utama (edit variabel di jalankan_strategy_vip)
 ├── test_audit.py        ← Audit & test semua komponen (game Limbo)
 ├── setup.sh             ← Setup otomatis di VPS Ubuntu
 ├── play.md              ← Panduan ini

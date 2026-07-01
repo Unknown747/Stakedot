@@ -68,20 +68,20 @@ else
     fi
 fi
 
-# ── 5. Cek file dice.py ──────────────────────────────────────
+# ── 5. Cek file main.py ──────────────────────────────────────
 header "5. Cek File Bot"
-if [ ! -f "dice.py" ]; then
-    err "dice.py tidak ditemukan di direktori ini: $(pwd)"
-    echo -e "  ${DIM}Pastikan kamu menjalankan setup.sh di folder yang sama dengan dice.py${R}"
+if [ ! -f "main.py" ]; then
+    err "main.py tidak ditemukan di direktori ini: $(pwd)"
+    echo -e "  ${DIM}Pastikan kamu menjalankan setup.sh di folder yang sama dengan main.py${R}"
     exit 1
 fi
-ok "dice.py ditemukan"
+ok "main.py ditemukan"
 
 # Cek syntax Python
-if python3 -c "import ast; ast.parse(open('dice.py').read())" 2>/dev/null; then
-    ok "Syntax dice.py valid"
+if python3 -c "import ast; ast.parse(open('main.py').read())" 2>/dev/null; then
+    ok "Syntax main.py valid"
 else
-    err "Syntax dice.py ada masalah. Periksa file."
+    err "Syntax main.py ada masalah. Periksa file."
     exit 1
 fi
 
@@ -94,7 +94,7 @@ cat > run.sh << EOF
 # Launcher Stake Limbo Bot
 cd "$LAUNCH_DIR"
 source ~/.bashrc
-python3 dice.py
+python3 main.py
 EOF
 chmod +x run.sh
 ok "run.sh dibuat"
@@ -104,11 +104,11 @@ header "7. Cara Menjalankan di VPS"
 
 echo -e "
   ${BOLD}Jalankan bot:${R}
-  ${CYAN}python3 dice.py${R}
+  ${CYAN}python3 main.py${R}
 
   ${BOLD}Jalankan di background (tetap jalan walau SSH ditutup):${R}
   ${CYAN}screen -S stake${R}
-  ${CYAN}python3 dice.py${R}
+  ${CYAN}python3 main.py${R}
   ${DIM}→ Bot langsung auto-run 24/7, tanpa menu/input${R}
 
   ${BOLD}Detach dari screen (biarkan jalan di background):${R}

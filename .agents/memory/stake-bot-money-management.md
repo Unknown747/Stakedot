@@ -1,6 +1,6 @@
 ---
 name: Stake bot money management
-description: Decisions about the Stake.com auto-bet bot's game choice, bet sizing strategy, and CLI behavior — read before changing dice.py's core betting logic.
+description: Decisions about the Stake.com auto-bet bot's game choice, bet sizing strategy, and CLI behavior — read before changing main.py's core betting logic (bot entry point was renamed from dice.py to main.py).
 ---
 
 ## Full martingale was rejected in favor of gentle escalation
@@ -10,7 +10,7 @@ It was later replaced with a lighter "on-loss multiply" scheme: bet increases by
 **How to apply:** when asked to add "recovery" or "loss recovery" to this bot, default to gentle percentage-based escalation with a hard cap, not doubling/martingale, unless the user explicitly insists otherwise — and if they do, flag the risk first.
 
 ## CLI must auto-run with zero prompts (VPS-focused)
-The user runs this bot unattended on a VPS. All interactive menus (mode selection, y/n prompts) were removed; `python3 dice.py` goes straight into the auto-bet loop with automatic session restarts and rest countdowns between sessions.
+The user runs this bot unattended on a VPS. All interactive menus (mode selection, y/n prompts) were removed; `python3 main.py` goes straight into the auto-bet loop with automatic session restarts and rest countdowns between sessions.
 **Why:** stated explicitly — "script fokus di vps," no one is at the keyboard to answer prompts.
 **How to apply:** any new feature must not introduce a blocking `input()` call in the main run path; use config constants instead.
 

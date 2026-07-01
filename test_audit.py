@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Audit & Test Script untuk dice.py (game: LIMBO)
+Audit & Test Script untuk main.py (game: LIMBO)
 Menguji semua komponen tanpa perlu main full session.
 """
 
@@ -8,9 +8,9 @@ import os, sys, uuid, time, csv, random
 from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 
-# ── Import dari dice.py ───────────────────────────────────────────────────────
+# ── Import dari main.py ───────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(__file__))
-from dice import (
+from main import (
     gql, USER_QUERY, LIMBO_MUTATION,
     determine_win_limbo, to_dec, fmt, _quanta,
     print_vip_status, simpan_log_csv, CSV_LOG,
@@ -82,7 +82,7 @@ for i in range(1, 6):
         })
         roll      = result["limboBet"]
 
-        # ── Parse aman seperti di dice.py production ──────────────────────────
+        # ── Parse aman seperti di main.py production ──────────────────────────
         state      = roll.get("state") or {}
         payout     = to_dec(roll.get("payout", 0))
         amount     = to_dec(roll.get("amount", 0))
@@ -155,7 +155,7 @@ ok("Kondisi aman tidak trigger stop ✅")
 
 # ── TEST 6: VIP next-level lookup ─────────────────────────────────────────────
 header("TEST 6 — VIP Next-Level Lookup")
-from dice import VIP_LEVELS, VIP_ORDER
+from main import VIP_LEVELS, VIP_ORDER
 
 for key in VIP_ORDER[:-1]:   # semua kecuali level terakhir
     cur_idx  = VIP_ORDER.index(key)
@@ -198,5 +198,5 @@ except Exception as e:
 
 # ── HASIL AKHIR ───────────────────────────────────────────────────────────────
 header("AUDIT SELESAI")
-print(f"  Semua komponen dice.py (LIMBO) berfungsi normal.")
-print(f"  Jalankan {g(BOLD, 'python3 dice.py')} untuk mulai grinding VIP otomatis.\n")
+print(f"  Semua komponen main.py (LIMBO) berfungsi normal.")
+print(f"  Jalankan {g(BOLD, 'python3 main.py')} untuk mulai grinding VIP otomatis.\n")
