@@ -19,6 +19,7 @@ import csv
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from datetime import datetime
+from typing import Optional
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -453,7 +454,7 @@ def rest_countdown(menit: int = 60):
         print(f"\n\n  {g(YELLOW, '⏩')}  Skip istirahat — langsung lanjut sesi baru.\n")
 
 
-def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | None = None):
+def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Optional[int] = None):
     """
     Auto-bet Strategy VIP: LIMBO, 98% Win Chance (target multiplier 1.01x),
     money management "On-Loss Multiply" (naik 2% tiap kalah, reset saat menang).
