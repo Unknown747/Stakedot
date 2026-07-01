@@ -15,7 +15,7 @@ from decimal import Decimal, ROUND_DOWN
 
 from main import (
     determine_win_limbo, to_dec, fmt, _quanta,
-    g, BOLD, GREEN, RED, CYAN, YELLOW, DIM,
+    g, BOLD, GREEN, RED, CYAN, DIM,
 )
 
 random.seed()  # RNG non-deterministik, seperti hasil roll asli
