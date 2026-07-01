@@ -399,7 +399,7 @@ def rest_countdown(menit: int = 60):
         print(f"\n\n  {g(YELLOW, '⏩')}  Skip istirahat — langsung lanjut sesi baru.\n")
 
 
-def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
+def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: int | None = None):
     """
     Auto-bet Strategy VIP: LIMBO, 98% Win Chance (target multiplier 1.01x),
     money management "On-Loss Multiply" (naik 2% tiap kalah, reset saat menang).
@@ -690,6 +690,11 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                 time.sleep(2)
             elif bet_per_mnt > 30:
                 time.sleep(1)
+
+            # ── Batas ronde manual (untuk test live terbatas, misal 100 spin) ──
+            if maks_ronde is not None and ronde >= maks_ronde:
+                print(g(CYAN, f"\n  🏁 Batas {maks_ronde} ronde tercapai — sesi test dihentikan.\n"))
+                break
 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
