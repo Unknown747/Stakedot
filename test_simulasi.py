@@ -15,7 +15,7 @@ from decimal import Decimal, ROUND_DOWN
 
 from main import (
     determine_win_limbo, to_dec, fmt, _quanta,
-    g, BOLD, GREEN, RED, CYAN, DIM,
+    g, BOLD, GREEN, RED, CYAN, YELLOW, DIM,
 )
 
 random.seed()  # RNG non-deterministik, seperti hasil roll asli
@@ -32,6 +32,9 @@ def header(title):
 # ── Konfigurasi strategi — HARUS identik dengan jalankan_strategy_vip() ───────
 N_SPIN_MAX        = 1000                      # batas maksimum spin per run
 SALDO_AWAL        = Decimal(sys.argv[1]) if len(sys.argv) > 1 else Decimal("200000")
+# Argumen ke-2 (opsional): jumlah kekalahan beruntun yang DIPAKSA di awal run,
+# untuk menguji skenario terburuk (worst-case) — bukan RNG normal.
+FORCE_LOSSES      = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 currency          = "idr"
 base_bet          = Decimal("1000")
 win_chance_pct    = Decimal("98")
@@ -48,9 +51,13 @@ on_loss_multiply_cap     = base_bet * Decimal("5")
 WIN_PROB = float(win_chance_pct) / 100.0   # probabilitas menang nyata = win_chance_pct%
 
 
-def simulasi_roll(bet: Decimal):
-    """Tiru satu limboBet API call secara lokal. Return dict roll-like."""
-    menang = random.random() < WIN_PROB
+def simulasi_roll(bet: Decimal, force_lose: bool = False):
+    """Tiru satu limboBet API call secara lokal. Return dict roll-like.
+
+    force_lose=True memaksa hasil kalah (dipakai utk skenario worst-case),
+    bukan RNG normal — untuk menguji ketahanan saldo/bet di kondisi apes.
+    """
+    menang = (not force_lose) and (random.random() < WIN_PROB)
     if menang:
         result = float(multiplier_target) + random.uniform(0, 5)
         payout = (bet * multiplier_target).quantize(_quanta(currency), rounding=ROUND_DOWN)
@@ -92,6 +99,11 @@ def main():
     sesi_log             = []                     # ringkasan tiap sesi (antar stop-loss)
     sesi_wins = sesi_losses = 0
     sesi_ke               = 1
+    worst_case_log        = []                    # progres bet per kalah, khusus mode worst-case
+
+    if FORCE_LOSSES > 0:
+        header(f"MODE WORST-CASE — {FORCE_LOSSES}x KEKALAHAN BERUNTUN DIPAKSA DI AWAL")
+        print(g(YELLOW, f"  ⚠️  {FORCE_LOSSES} spin pertama DIPAKSA kalah (bukan RNG) untuk stress-test.\n"))
 
     while ronde < N_SPIN_MAX:
         # ── Cek saldo cukup untuk bet berikutnya ────────────────────────────
@@ -100,7 +112,8 @@ def main():
             break
 
         ronde += 1
-        roll   = simulasi_roll(current_bet)
+        force_lose = ronde <= FORCE_LOSSES
+        roll   = simulasi_roll(current_bet, force_lose=force_lose)
 
         state  = roll["state"]
         payout = to_dec(roll["payout"])
@@ -133,6 +146,11 @@ def main():
             else:
                 current_bet = naik.quantize(_quanta(currency), rounding=ROUND_DOWN)
             max_bet_reached = max(max_bet_reached, current_bet)
+
+        if force_lose:
+            worst_case_log.append({
+                "kalah_ke": ronde, "bet_baru": current_bet, "saldo": saldo,
+            })
 
         # ── Cek stop-loss → tutup sesi ini, catat ringkasan, mulai sesi baru ─
         if total_loss >= max_loss_limit:
@@ -169,6 +187,16 @@ def main():
     total    = wins + losses
     win_rate = (Decimal(wins) / Decimal(total) * 100) if total else Decimal("0")
     net      = saldo - SALDO_AWAL
+
+    if worst_case_log:
+        header(f"DETAIL WORST-CASE — PROGRES {FORCE_LOSSES}x KEKALAHAN BERUNTUN")
+        print(f"  {'Kalah ke-':<12}{'Bet Baru':<16}{'Saldo Setelahnya':<18}")
+        for w in worst_case_log:
+            print(f"  {w['kalah_ke']:<12}{fmt(w['bet_baru'], currency):<16}{fmt(w['saldo'], currency):<18}")
+        habis_terpakai = SALDO_AWAL - worst_case_log[-1]["saldo"]
+        print(g(YELLOW, f"\n  💸 Total habis terpakai selama {FORCE_LOSSES}x kalah beruntun: {fmt(habis_terpakai, currency)}"))
+        if worst_case_log[-1]["bet_baru"] >= on_loss_multiply_cap:
+            print(g(RED, f"  🛑 Bet sudah mentok di cap {fmt(on_loss_multiply_cap, currency)} sebelum {FORCE_LOSSES}x kalah selesai."))
 
     header("RINCIAN PER SESI (antar stop-loss)")
     print(f"  {'Sesi':<6}{'Menang':<10}{'Kalah':<10}{'Loss Sesi':<16}{'Saldo Akhir':<16}")
