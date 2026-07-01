@@ -423,11 +423,11 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
 
     # ── Konfigurasi strategi ──────────────────────────────────────────────────
     currency            = "idr"
-    base_bet            = Decimal("1000")      # ← Base Bet Rp 1.000
-    rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
+    base_bet            = Decimal("500")       # ← Base Bet Rp 500 (diturunkan utk ketahanan saldo)
+    rest_setiap_volume  = Decimal("2500000")   # Istirahat 15 menit setiap Rp 2,5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
-    max_loss_limit      = Decimal("45000")     # Stop-loss: berhenti jika loss ≥ Rp 45 ribu
-    topup_alert_idr     = Decimal("75000")     # ← Warning terminal jika saldo < X (Rp 75 ribu)
+    max_loss_limit      = Decimal("22500")     # Stop-loss: berhenti jika loss ≥ Rp 22,5 ribu
+    topup_alert_idr     = Decimal("37500")     # ← Warning terminal jika saldo < X (Rp 37,5 ribu)
     win_chance_pct      = Decimal("98")
     multiplier_target   = (Decimal("99") / win_chance_pct).quantize(
                               Decimal("0.0001"), rounding=ROUND_DOWN)   # ≈ 1.0102x
@@ -473,7 +473,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     next_million_notif   = Decimal("1000000")     # Milestone print di terminal tiap Rp1 juta wager
     _topup_notified      = False                  # Agar alert top-up hanya kirim sekali per sesi
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
-    take_profit_idr      = Decimal("5000")        # Jeda 5 dtk setiap kelipatan profit ini
+    take_profit_idr      = Decimal("2500")        # Jeda 5 dtk setiap kelipatan profit ini
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
     # ── On-Loss Multiply state ────────────────────────────────────────────────
@@ -485,7 +485,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None              # Saldo sesi (dicatat dari bal pertama)
-    profit_lock_idr      = Decimal("20000")  # Stop-loss naik setiap saldo bertambah Rp 20.000
+    profit_lock_idr      = Decimal("10000")  # Stop-loss naik setiap saldo bertambah Rp 10.000
     profit_lock_level    = 0                 # Sudah berapa kali profit lock naik
 
     try:

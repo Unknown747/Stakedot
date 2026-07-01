@@ -36,13 +36,13 @@ SALDO_AWAL        = Decimal(sys.argv[1]) if len(sys.argv) > 1 else Decimal("2000
 # untuk menguji skenario terburuk (worst-case) — bukan RNG normal.
 FORCE_LOSSES      = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 currency          = "idr"
-base_bet          = Decimal("1000")
+base_bet          = Decimal("500")
 win_chance_pct    = Decimal("98")
 multiplier_target = (Decimal("99") / win_chance_pct).quantize(
                         Decimal("0.0001"), rounding=ROUND_DOWN)   # ≈ 1.0102x
-max_loss_limit    = Decimal("45000")
-profit_lock_idr   = Decimal("20000")
-rest_setiap_volume = Decimal("5000000")
+max_loss_limit    = Decimal("22500")
+profit_lock_idr   = Decimal("10000")
+rest_setiap_volume = Decimal("2500000")
 
 on_loss_multiply_enabled = True
 on_loss_multiply_pct     = Decimal("2")
