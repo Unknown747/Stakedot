@@ -1,0 +1,1 @@
+- [Stake bot money management](stake-bot-money-management.md) — VPS-only, no-menu Dice/Limbo bot; on-loss-multiply replaced martingale; game/API mutation choice matters.

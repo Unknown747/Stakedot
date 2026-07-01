@@ -91,18 +91,16 @@ VIP_LEVELS = {
 # Urutan level eksplisit — dipakai untuk lookup next-level yang benar
 VIP_ORDER = ["none", "bronze", "silver", "gold", "platinum", "platinumii", "platinumiii", "diamond"]
 
-DICE_MUTATION = """
-mutation DiceRoll(
+LIMBO_MUTATION = """
+mutation LimboBet(
   $amount: Float!
-  $target: Float!
-  $condition: CasinoGameDiceConditionEnum!
+  $multiplierTarget: Float!
   $currency: CurrencyEnum!
   $identifier: String!
 ) {
-  diceRoll(
+  limboBet(
     amount: $amount
-    target: $target
-    condition: $condition
+    multiplierTarget: $multiplierTarget
     currency: $currency
     identifier: $identifier
   ) {
@@ -112,10 +110,9 @@ mutation DiceRoll(
     payout
     currency
     state {
-      ... on CasinoGameDice {
+      ... on CasinoGameLimbo {
         result
-        target
-        condition
+        multiplierTarget
       }
     }
     user {
@@ -216,21 +213,18 @@ def idr_k(val):
         return "N/A"
 
 
-def determine_win(roll_result: dict) -> bool:
+def determine_win_limbo(roll_result: dict) -> bool:
     """
-    Tentukan menang/kalah berdasarkan data game result dari API.
+    Tentukan menang/kalah untuk game Limbo.
+    Menang jika multiplier hasil (result) >= multiplier target yang dipasang.
     Aman terhadap dict kosong — fallback ke False jika field tidak lengkap.
     """
     if not roll_result:
         return False
     try:
-        rolled    = Decimal(str(roll_result["result"]))
-        target    = Decimal(str(roll_result["target"]))
-        condition = roll_result["condition"]
-        if condition == "above":
-            return rolled > target
-        elif condition == "below":
-            return rolled < target
+        result            = Decimal(str(roll_result["result"]))
+        multiplier_target = Decimal(str(roll_result["multiplierTarget"]))
+        return result >= multiplier_target
     except (KeyError, TypeError, InvalidOperation):
         pass
     return False
@@ -407,10 +401,16 @@ def rest_countdown(menit: int = 60):
 
 def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     """
-    Auto-bet Strategy VIP: 98% Win Chance, flat bet IDR 600.
+    Auto-bet Strategy VIP: LIMBO, 98% Win Chance (target multiplier 1.01x),
+    money management "On-Loss Multiply" (naik 2% tiap kalah, reset saat menang).
 
-    Tujuan  : Mengumpulkan volume wager secepat mungkin untuk naik VIP
-              dengan modal ketat Rp 100.000.
+    Tujuan  : Mengumpulkan volume wager secepat mungkin untuk naik VIP,
+              dengan manajemen modal yang lebih efisien dibanding martingale
+              penuh — kenaikan bet kecil & bertahap, bukan lipat 100%.
+
+    Catatan Limbo   : Karena bot bertaruh langsung lewat API (bukan lewat UI
+                      web), tidak ada animasi roll sama sekali — setiap bet
+                      sudah otomatis "instant/fast" tanpa perlu setting lain.
 
     Logika istirahat:
       - Setiap Rp 5.000.000 wager kumulatif → istirahat 15 menit, lanjut otomatis
@@ -423,60 +423,40 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
 
     # ── Konfigurasi strategi ──────────────────────────────────────────────────
     currency            = "idr"
-    base_bet            = Decimal("200")       # ← Ubah di sini jika ingin Rp 200 / 400 / 600 / 800 / 1000
+    base_bet            = Decimal("1000")      # ← Base Bet Rp 1.000
     rest_setiap_volume  = Decimal("5000000")   # Istirahat 15 menit setiap Rp 5 juta wager
     rest_menit_volume   = 15                   # Durasi istirahat setelah checkpoint volume
     max_loss_limit      = Decimal("45000")     # Stop-loss: berhenti jika loss ≥ Rp 45 ribu
     topup_alert_idr     = Decimal("75000")     # ← Warning terminal jika saldo < X (Rp 75 ribu)
     win_chance_pct      = Decimal("98")
-    condition           = "below"
-    target_num          = 98.0
-    multiplier          = (Decimal("99") / win_chance_pct).quantize(
-                              Decimal("0.000001"), rounding=ROUND_DOWN)
+    multiplier_target   = (Decimal("99") / win_chance_pct).quantize(
+                              Decimal("0.0001"), rounding=ROUND_DOWN)   # ≈ 1.0102x
 
-    # ── Konfigurasi Recovery (Martingale Kilat — 1 Level Only) ──────────────────
-    # Desain: Kalah → tembak 1× bet besar untuk menutup loss → apapun hasilnya,
-    #         langsung kembali ke base_bet. TIDAK ada eskalasi berlanjut.
-    # Ref catatan: "Taruhan besar HANYA boleh bernyawa selama 1 klik."
-    recovery_enabled       = False             # ← False = flat bet tanpa recovery
-    recovery_factor        = Decimal("50")     # ← Recovery bet = base_bet × 50 (5.000% dari base)
-    recovery_max_bet       = Decimal("20000")  # ← Safety cap — bet recovery tidak boleh melebihi ini
-    recovery_delay_min_sec = 3                 # ← Jeda minimum sebelum tembak recovery (detik)
-    recovery_delay_max_sec = 5                 # ← Jeda maksimum sebelum tembak recovery (detik)
-
-    # ── Konfigurasi Anti-Spiral Protection ───────────────────────────────────
-    rcv_skip_after       = 2            # Jumlah spin hukuman setelah rcv gagal
-    rcv_fail_streak_max  = 2            # Streak Guard aktif setelah N bet Rp10k gagal berturut-turut
-    rcv_fail_pause_sec   = 15           # Pause setelah 1× recovery gagal (detik)
-    rcv_streak_pause_min = 1            # Cooldown menit setelah streak Rp10k gagal
-    rcv_mega_limit       = 5            # Mega cooldown setiap N bet Rp10k gagal (counter reset setelah cooldown)
-    rcv_mega_pause_min   = 5            # Durasi mega cooldown (menit)
+    # ── Konfigurasi On-Loss Multiply (money management ringan) ───────────────
+    # Desain: kalah → bet naik 2% (BUKAN martingale 100%). Menang → langsung
+    # kembali ke Base Bet. Pertumbuhan geometris lambat sehingga modal tetap
+    # aman walau kena losing streak panjang. Ada cap keras agar tidak liar.
+    on_loss_multiply_enabled = True
+    on_loss_multiply_pct     = Decimal("2")               # ← Naik 2% tiap kalah
+    on_loss_multiply_cap     = base_bet * Decimal("5")    # ← Cap keras: maks 5× Base Bet
 
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
     print_vip_status(flag_progress)
 
     # ── Info konfigurasi sesi ─────────────────────────────────────────────────
-    print_section("STRATEGY VIP — 98% WIN CHANCE  (SPEED MODE)")
+    print_section("STRATEGY VIP — LIMBO 98% WIN CHANCE  (SPEED MODE)")
+    print(f"  Game          : {g(BOLD, 'LIMBO')}  {g(DIM, '(via API — otomatis instant, tanpa animasi)')}")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
     print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah variabel base_bet')}")
-    print(f"  Win Chance    : {g(BOLD, '98%')}  |  Multiplier: {g(BOLD, f'{multiplier}x')}")
+    print(f"  Win Chance    : {g(BOLD, '98%')}  |  Target Multiplier: {g(BOLD, f'{multiplier_target}x')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
-    if recovery_enabled:
-        _rbbet = min(base_bet * recovery_factor, recovery_max_bet).quantize(
-                     _quanta(currency), rounding=ROUND_DOWN)
-        print(f"  Recovery      : {g(GREEN, 'AKTIF')}  "
-              f"{g(DIM, f'1 level only · bet recovery: {fmt(_rbbet, currency)}')}  "
-              f"{g(DIM, f'· delay {recovery_delay_min_sec}–{recovery_delay_max_sec}d')}")
-        print(f"  Anti-Spiral   : {g(GREEN, 'AKTIF')}  "
-              f"{g(DIM, f'rcv gagal → pause {rcv_fail_pause_sec}d + skip {rcv_skip_after} spin')}")
-        print(f"  Streak Guard  : {g(GREEN, 'AKTIF')}  "
-              f"{g(DIM, f'{rcv_fail_streak_max}× beruntun gagal → cooldown {rcv_streak_pause_min} mnt')}")
-        print(f"  Mega Cooldown : {g(GREEN, 'AKTIF')}  "
-              f"{g(DIM, f'rcv gagal {rcv_mega_limit}× total → istirahat {rcv_mega_pause_min} mnt')}")
+    if on_loss_multiply_enabled:
+        print(f"  On-Loss Multiply : {g(GREEN, 'AKTIF')}  "
+              f"{g(DIM, f'+{on_loss_multiply_pct}% tiap kalah · cap {fmt(on_loss_multiply_cap, currency)} · reset saat menang')}")
     else:
-        print(f"  Recovery      : {g(DIM, 'nonaktif (flat bet)')}")
+        print(f"  On-Loss Multiply : {g(DIM, 'nonaktif (flat bet)')}")
     print(f"  Delay         : {g(DIM, 'tanpa delay — API Stake sebagai natural throttle')}")
     print(f"  Log terminal  : {g(DIM, 'setiap spin (dengan durasi berjalan)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
@@ -496,24 +476,17 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     take_profit_idr      = Decimal("5000")        # Jeda 5 dtk setiap kelipatan profit ini
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
 
-    # ── Recovery state ────────────────────────────────────────────────────────
-    current_bet       = base_bet        # Bet aktif saat ini
-    in_recovery       = False           # True = giliran bet recovery sekarang (maks 1 klik)
-    rcv_triggered     = 0               # Berapa kali recovery terpicu
-    rcv_wins          = 0               # Recovery berhasil (menang)
-    rcv_losses        = 0               # Recovery gagal (kalah lagi)
-    rcv_total_saved   = Decimal("0")    # Total loss yang berhasil diselamatkan recovery
-
-    # ── Anti-Spiral state counters (config ada di blok konfigurasi di atas) ──
-    rcv_skip_spins       = 0            # Sisa spin hukuman — turun 1 tiap spin (WIN maupun LOSE)
-    rcv_fail_streak      = 0            # Counter bet Rp10k gagal berturut-turut (tanpa rcv menang di antara)
-    rcv_mega_counter     = 0            # Counter khusus Lapis 3 — reset ke 0 setelah mega cooldown selesai
+    # ── On-Loss Multiply state ────────────────────────────────────────────────
+    current_bet         = base_bet    # Bet aktif saat ini
+    loss_streak          = 0           # Kalah beruntun sejak reset terakhir
+    max_loss_streak_bet  = 0           # Loss streak terpanjang dalam sesi ini
+    max_bet_reached      = base_bet   # Bet tertinggi yang pernah dipasang
+    cap_hit_count        = 0           # Berapa kali bet kena cap (mentok 5× base bet)
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None              # Saldo sesi (dicatat dari bal pertama)
     profit_lock_idr      = Decimal("20000")  # Stop-loss naik setiap saldo bertambah Rp 20.000
     profit_lock_level    = 0                 # Sudah berapa kali profit lock naik
-    prev_bal             = None              # Saldo bet sebelumnya (validasi post-recovery)
 
     try:
         while True:
@@ -521,14 +494,13 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             # ── Kirim taruhan ke Stake via API ────────────────────────────────
             identifier = str(uuid.uuid4())
             try:
-                api_result = gql(DICE_MUTATION, {
-                    "amount":     float(current_bet),
-                    "target":     target_num,
-                    "condition":  condition,
-                    "currency":   currency,
-                    "identifier": identifier,
+                api_result = gql(LIMBO_MUTATION, {
+                    "amount":           float(current_bet),
+                    "multiplierTarget": float(multiplier_target),
+                    "currency":         currency,
+                    "identifier":       identifier,
                 })
-                roll            = api_result["diceRoll"]
+                roll            = api_result["limboBet"]
                 consecutive_err = 0
             except PermissionError as e:
                 print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
@@ -550,10 +522,10 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             amount     = to_dec(roll.get("amount", 0))
             profit     = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
 
-            won_state      = determine_win(state)
-            won_payout     = payout > amount
-            won            = won_payout if not state else won_state
-            was_recovery   = in_recovery  # Capture sebelum state machine mengubahnya
+            won_state       = determine_win_limbo(state)
+            won_payout      = payout > amount
+            won             = won_payout if not state else won_state
+            bet_sebelum_ini = current_bet   # Capture sebelum on-loss-multiply mengubahnya
 
             # ── Update statistik ──────────────────────────────────────────────
             total_volume += current_bet
@@ -564,73 +536,25 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             else:
                 losses += 1
 
-            # ── Recovery State Machine ────────────────────────────────────────
-            # Desain: 1 level only — bet besar diizinkan HANYA 1 klik.
-            # Apapun hasilnya (menang/kalah), langsung kembali ke base_bet.
-            if in_recovery:
-                # Giliran ini ADALAH bet recovery — resolusi wajib
-                in_recovery = False
+            # ── On-Loss Multiply: naik 2% tiap kalah, reset ke base saat menang ─
+            if won:
+                if loss_streak > 0:
+                    print(g(GREEN,
+                        f"  ✅ MENANG — reset ke Base Bet {fmt(base_bet, currency)} "
+                        f"(setelah {loss_streak}x kalah beruntun)"
+                    ))
+                loss_streak = 0
                 current_bet = base_bet
-                if won:
-                    rcv_wins        += 1
-                    rcv_total_saved += profit   # profit positif = loss tertutupi
-                    rcv_fail_streak  = 0        # Reset streak karena recovery berhasil
-                    print(g(GREEN, f"  ✅ RECOVERY BERHASIL — kembali ke Base Bet {fmt(base_bet, currency)}"))
+            elif on_loss_multiply_enabled:
+                loss_streak += 1
+                max_loss_streak_bet = max(max_loss_streak_bet, loss_streak)
+                naik = current_bet * (Decimal("1") + on_loss_multiply_pct / Decimal("100"))
+                if naik >= on_loss_multiply_cap:
+                    current_bet = on_loss_multiply_cap
+                    cap_hit_count += 1
                 else:
-                    rcv_losses      += 1
-                    rcv_fail_streak += 1
-                    rcv_mega_counter += 1
-                    rcv_skip_spins   = rcv_skip_after  # Kunci recovery N spin ke depan
-                    print(g(RED,
-                        f"  ⚠️  Recovery kalah — loss diterima. "
-                        f"Reset ke Base Bet {fmt(base_bet, currency)}  "
-                        f"(kunci recovery {rcv_skip_after} spin berikutnya)"
-                    ))
-                    # Lapis 1 — Pause wajib setelah recovery gagal
-                    print(g(YELLOW, f"  ⏸  Anti-Spiral: jeda {rcv_fail_pause_sec}d..."))
-                    time.sleep(rcv_fail_pause_sec)
-
-                    # Lapis 2 — Streak Guard: N× bet Rp10k gagal berturut-turut tanpa rcv menang
-                    if rcv_fail_streak >= rcv_fail_streak_max:
-                        print(g(RED,
-                            f"\n  🌡️  STREAK GUARD: {rcv_fail_streak}× bet Rp10k gagal beruntun — "
-                            f"cooldown {rcv_streak_pause_min} menit...\n"
-                        ))
-                        rest_countdown(rcv_streak_pause_min)
-                        rcv_fail_streak = 0   # Reset streak, bukan rcv_mega_counter
-
-                    # Lapis 3 — Mega Cooldown: setiap rcv_mega_limit kali gagal (counter reset setelah istirahat)
-                    if rcv_mega_counter >= rcv_mega_limit:
-                        print(g(RED,
-                            f"\n  🛑  MEGA COOLDOWN: {rcv_mega_counter}× recovery gagal — "
-                            f"istirahat {rcv_mega_pause_min} menit...\n"
-                        ))
-                        rest_countdown(rcv_mega_pause_min)
-                        rcv_mega_counter = 0  # Reset setelah cooldown selesai
-            else:
-                # Giliran ini adalah bet normal
-                if rcv_skip_spins > 0:
-                    # ── Spin hukuman aktif: turun 1 tiap spin (WIN maupun LOSE) ──
-                    # Recovery DIKUNCI. Kalau kalah, cukup terima -Rp200, tidak tembak Rp10k.
-                    rcv_skip_spins -= 1
-                    if not won:
-                        print(g(DIM,
-                            f"  ⏭  Spin hukuman: recovery dikunci "
-                            f"({rcv_skip_spins} spin sisa) — loss Rp200 diterima"
-                        ))
-                elif not won and recovery_enabled:
-                    # ── Normal: kalah → tembak recovery ──────────────────────────
-                    raw_rb      = base_bet * recovery_factor
-                    current_bet = min(raw_rb, recovery_max_bet).quantize(
-                                      _quanta(currency), rounding=ROUND_DOWN)
-                    in_recovery   = True
-                    rcv_triggered += 1
-                    delay_sek     = random.uniform(recovery_delay_min_sec, recovery_delay_max_sec)
-                    print(g(YELLOW,
-                        f"\n  ⚡ KALAH — jeda {delay_sek:.1f}d lalu tembak "
-                        f"Recovery Bet {fmt(current_bet, currency)}...\n"
-                    ))
-                    time.sleep(delay_sek)
+                    current_bet = naik.quantize(_quanta(currency), rounding=ROUND_DOWN)
+                max_bet_reached = max(max_bet_reached, current_bet)
 
             # ── Ambil saldo terkini ───────────────────────────────────────────
             user_bals  = roll.get("user", {}).get("balances", [])
@@ -644,19 +568,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             if saldo_awal is None and bal_dec is not None:
                 saldo_awal = bal_dec
 
-            # ── Poin 4: Re-check Balance setelah Recovery (Anti-Lag) ─────────
-            # Setelah recovery bet selesai, pause 2 dtk + validasi saldo sinkron.
-            if was_recovery and bal_dec is not None:
-                if prev_bal is not None and bal_dec == prev_bal:
-                    print(g(YELLOW,
-                        "  ⚠️  Saldo tidak berubah post-recovery — "
-                        "kemungkinan lag server. Pause 2 detik..."
-                    ))
-                else:
-                    print(g(DIM, "  ⏳ Stabilisasi data post-recovery (2 detik)..."))
-                time.sleep(2)
-
-            # ── Poin 5: Profit Lock — naikkan stop-loss saat surplus +Rp20.000 ─
+            # ── Profit Lock — naikkan stop-loss saat surplus +Rp20.000 ─────────
             if saldo_awal is not None and bal_dec is not None:
                 surplus = bal_dec - saldo_awal
                 target_lock = profit_lock_idr * (profit_lock_level + 1)
@@ -669,10 +581,6 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
                         f"Surplus +{idr_k(surplus)} IDR — "
                         f"Stop-loss dinaikkan ke {fmt(max_loss_limit, currency)}\n"
                     ))
-
-            # Simpan saldo ini untuk validasi recovery berikutnya
-            if bal_dec is not None:
-                prev_bal = bal_dec
 
             # ── Top-Up Alert: saldo < threshold → cetak sekali di terminal ─────
             if (
@@ -721,8 +629,9 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
             bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
             loss_k = idr_k(total_loss)
 
-            # Tandai apakah spin ini adalah bet recovery (pakai was_recovery — dicapture sebelum state machine)
-            bet_label = (g(YELLOW, f"RCV {idr_k(amount)}") if was_recovery
+            # Tandai apakah bet ini sudah naik dari base bet (on-loss multiply aktif)
+            bet_label = (g(YELLOW, f"x{(bet_sebelum_ini / base_bet):.2f} {idr_k(amount)}")
+                         if bet_sebelum_ini != base_bet
                          else g(DIM, f"Bet {idr_k(amount)}"))
 
             print(
@@ -803,25 +712,16 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False):
     print(f"  {'Net Profit/Loss':<18} {g(net_color, BOLD + net_sign + fmt(net, currency) + R)}")
     print(f"  {g(CYAN, '─' * 52)}")
 
-    # ── Statistik Recovery ────────────────────────────────────────────────────
-    if recovery_enabled and rcv_triggered > 0:
-        rcv_rate     = (rcv_wins / rcv_triggered * 100) if rcv_triggered > 0 else 0
-        saved_color  = GREEN if rcv_total_saved > 0 else DIM
-        saved_sign   = "+" if rcv_total_saved >= 0 else ""
-        print(f"\n  {g(CYAN, '◆')} {g(BOLD, 'STATISTIK RECOVERY')}")
+    # ── Statistik On-Loss Multiply ─────────────────────────────────────────────
+    if on_loss_multiply_enabled and max_loss_streak_bet > 0:
+        print(f"\n  {g(CYAN, '◆')} {g(BOLD, 'STATISTIK ON-LOSS MULTIPLY')}")
         print(f"  {g(CYAN, '─' * 52)}")
-        print(f"  {'Terpicu':<18} {g(BOLD, str(rcv_triggered))} kali")
-        print(f"  {'Berhasil':<18} {g(GREEN, f'✅  {rcv_wins}')}  {g(DIM, f'({rcv_rate:.0f}%)')}")
-        print(f"  {'Gagal':<18} {g(RED,   f'⚠️   {rcv_losses}')}")
-        print(f"  {'Loss Diselamatkan':<18} {g(saved_color, saved_sign + fmt(rcv_total_saved, currency))}")
-        if rcv_losses > 0:
-            streak_guard_ct = rcv_losses // rcv_fail_streak_max
-            mega_ct         = rcv_losses // rcv_mega_limit
-            print(f"  {'Streak Guard':<18} {g(YELLOW, str(streak_guard_ct))} kali terpicu")
-            print(f"  {'Mega Cooldown':<18} {g(YELLOW, str(mega_ct))} kali terpicu")
+        print(f"  {'Loss Streak Terpanjang':<24} {g(YELLOW, str(max_loss_streak_bet))}x")
+        print(f"  {'Bet Tertinggi Dipasang':<24} {g(YELLOW, fmt(max_bet_reached, currency))}")
+        print(f"  {'Bet Kena Cap (5x)':<24} {g(RED if cap_hit_count > 0 else DIM, f'{cap_hit_count} kali')}")
         print(f"  {g(CYAN, '─' * 52)}")
-    elif recovery_enabled and rcv_triggered == 0:
-        print(g(DIM, f"\n  🛡  Recovery: tidak ada loss dalam sesi ini — 0 kali terpicu"))
+    elif on_loss_multiply_enabled:
+        print(g(DIM, "\n  🛡  On-Loss Multiply: tidak ada loss dalam sesi ini — bet tetap flat"))
 
     # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
     flag_before = flag_progress.get("flag") or "none"
