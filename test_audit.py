@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Audit & Test Script untuk dice.py
+Audit & Test Script untuk dice.py (game: LIMBO)
 Menguji semua komponen tanpa perlu main full session.
 """
 
@@ -11,8 +11,8 @@ from datetime import datetime
 # ── Import dari dice.py ───────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(__file__))
 from dice import (
-    gql, USER_QUERY, DICE_MUTATION,
-    determine_win, to_dec, fmt, _quanta,
+    gql, USER_QUERY, LIMBO_MUTATION,
+    determine_win_limbo, to_dec, fmt, _quanta,
     print_vip_status, simpan_log_csv, CSV_LOG,
     g, BOLD, GREEN, RED, CYAN, YELLOW, BLUE, DIM,
 )
@@ -60,13 +60,12 @@ else:
     fail("Saldo IDR kosong — top up dulu sebelum lanjut")
 
 # ── TEST 4: Live Bet (5 ronde kecil) ─────────────────────────────────────────
-header("TEST 4 — Live Bet 5 Ronde (Rp 200/roll, 98% win chance)")
+header("TEST 4 — Live Bet 5 Ronde (Rp 1.000/roll, 98% win chance, LIMBO)")
 info("Menempatkan 5 taruhan nyata ke Stake.com...\n")
 
-base_bet   = Decimal("200")
-currency   = "idr"
-condition  = "below"
-target_num = 98.0
+base_bet          = Decimal("1000")
+currency          = "idr"
+multiplier_target = Decimal("1.0102")
 
 total_volume = Decimal("0")
 total_loss   = Decimal("0")
@@ -75,14 +74,13 @@ wins = losses = 0
 for i in range(1, 6):
     ident = str(uuid.uuid4())
     try:
-        result    = gql(DICE_MUTATION, {
-            "amount":     float(base_bet),
-            "target":     target_num,
-            "condition":  condition,
-            "currency":   currency,
-            "identifier": ident,
+        result    = gql(LIMBO_MUTATION, {
+            "amount":           float(base_bet),
+            "multiplierTarget": float(multiplier_target),
+            "currency":         currency,
+            "identifier":       ident,
         })
-        roll      = result["diceRoll"]
+        roll      = result["limboBet"]
 
         # ── Parse aman seperti di dice.py production ──────────────────────────
         state      = roll.get("state") or {}
@@ -90,7 +88,7 @@ for i in range(1, 6):
         amount     = to_dec(roll.get("amount", 0))
         profit     = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
 
-        won_state  = determine_win(state)
+        won_state  = determine_win_limbo(state)
         won_payout = payout > amount
         won        = won_payout if not state else won_state
 
@@ -127,16 +125,16 @@ ok(f"5 bet selesai — W/L: {wins}/{losses} ({win_rate:.0f}%) | "
    f"Volume: {fmt(total_volume, currency)} | "
    f"Loss: {fmt(total_loss, currency)}")
 
-# ── TEST 5: determine_win safety ──────────────────────────────────────────────
-header("TEST 5 — determine_win Safety & Stop Condition Logic")
+# ── TEST 5: determine_win_limbo safety ────────────────────────────────────────
+header("TEST 5 — determine_win_limbo Safety & Stop Condition Logic")
 
-# Uji determine_win dengan dict kosong / None — tidak boleh crash
-assert determine_win({})   == False, "dict kosong harus return False"
-assert determine_win(None) == False, "None harus return False"  # type: ignore
-assert determine_win({"result": 50, "target": 98, "condition": "below"}) == True
-assert determine_win({"result": 99, "target": 98, "condition": "below"}) == False
-assert determine_win({"result": 99, "target": 98, "condition": "above"}) == True
-ok("determine_win aman untuk semua edge case")
+# Uji determine_win_limbo dengan dict kosong / None — tidak boleh crash
+assert determine_win_limbo({})   == False, "dict kosong harus return False"
+assert determine_win_limbo(None) == False, "None harus return False"  # type: ignore
+assert determine_win_limbo({"result": 1.02,   "multiplierTarget": 1.0102}) == True
+assert determine_win_limbo({"result": 1.0102, "multiplierTarget": 1.0102}) == True
+assert determine_win_limbo({"result": 1.00,   "multiplierTarget": 1.0102}) == False
+ok("determine_win_limbo aman untuk semua edge case")
 
 # Simulasi stop conditions
 sim_volume     = Decimal("1999800") + Decimal("200")  # tepat 2.000.000
@@ -200,5 +198,5 @@ except Exception as e:
 
 # ── HASIL AKHIR ───────────────────────────────────────────────────────────────
 header("AUDIT SELESAI")
-print(f"  Semua komponen dice.py berfungsi normal.")
-print(f"  Jalankan {g(BOLD, 'python dice.py')} → pilih Mode 2 untuk mulai grinding VIP.\n")
+print(f"  Semua komponen dice.py (LIMBO) berfungsi normal.")
+print(f"  Jalankan {g(BOLD, 'python3 dice.py')} untuk mulai grinding VIP otomatis.\n")

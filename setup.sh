@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────
-#  setup.sh — Setup otomatis Stake Dice Bot di VPS Ubuntu
+#  setup.sh — Setup otomatis Stake Limbo Bot di VPS Ubuntu
 #  Jalankan: bash setup.sh
 # ─────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ err()    { echo -e "  ${RED}❌  $1${R}"; }
 
 echo -e "${CYAN}"
 echo "  ╔═════════════════════════════════════════════════════╗"
-echo "  ║       Stake Dice Bot — VPS Setup Script             ║"
+echo "  ║       Stake Limbo Bot — VPS Setup Script            ║"
 echo "  ║       Ubuntu 22.04 LTS  ·  by setup.sh             ║"
 echo "  ╚═════════════════════════════════════════════════════╝"
 echo -e "${R}"
@@ -91,7 +91,7 @@ LAUNCH_DIR="$(pwd)"
 
 cat > run.sh << EOF
 #!/bin/bash
-# Launcher Stake Dice Bot
+# Launcher Stake Limbo Bot
 cd "$LAUNCH_DIR"
 source ~/.bashrc
 python3 dice.py
@@ -109,7 +109,7 @@ echo -e "
   ${BOLD}Jalankan di background (tetap jalan walau SSH ditutup):${R}
   ${CYAN}screen -S stake${R}
   ${CYAN}python3 dice.py${R}
-  ${DIM}→ Pilih Mode 3 (VPS Auto-Run) untuk jalan 24/7${R}
+  ${DIM}→ Bot langsung auto-run 24/7, tanpa menu/input${R}
 
   ${BOLD}Detach dari screen (biarkan jalan di background):${R}
   ${CYAN}Ctrl+A  lalu  D${R}

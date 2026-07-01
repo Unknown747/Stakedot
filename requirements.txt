@@ -1,4 +1,4 @@
-# ─── Stake.com Dice CLI — Requirements ───────────────────────────────────────
+# ─── Stake.com Limbo CLI — Requirements ───────────────────────────────────────
 # Install semua dependensi dengan perintah:
 #   pip install -r requirements.txt
 

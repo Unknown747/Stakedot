@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Stake.com Dice CLI
-Mainkan dice Stake.com langsung dari terminal menggunakan API resmi.
+Stake.com Limbo CLI
+Mainkan Limbo Stake.com langsung dari terminal menggunakan API resmi.
 """
 
 import os
