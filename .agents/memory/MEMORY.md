@@ -1,1 +1,2 @@
 - [Stake bot money management](stake-bot-money-management.md) — VPS-only, no-menu Dice/Limbo bot; on-loss-multiply replaced martingale; game/API mutation choice matters.
+- [Stake bot testing without API key](stake-bot-dry-run-testing.md) — no STAKE_API_KEY means no live bets; use a local RNG dry-run simulator to validate betting logic instead.
