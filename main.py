@@ -920,7 +920,7 @@ def main():
     print(g(GREEN, "  ✅ VPS Auto-Run aktif — sesi baru otomatis setelah setiap sesi selesai"))
     print(g(DIM,   "  Ctrl+C saat betting = keluar. Ctrl+C saat istirahat = skip jeda.\n"))
 
-    rest_menit = 15
+    rest_menit = int(CONFIG["rest_menit_antar_sesi"])
     sesi_ke    = 1
     while True:
         waktu_mulai = datetime.now().strftime("%d/%m %H:%M")
@@ -931,18 +931,27 @@ def main():
         except Exception as e:
             print(g(YELLOW, f"  ⚠️  Gagal refresh data user: {e} — lanjut dengan data sesi sebelumnya."))
 
-        lanjut = jalankan_strategy_vip(user=user, vps_mode=True)
+        lanjut, sudah_istirahat_internal = jalankan_strategy_vip(user=user, vps_mode=True)
         if not lanjut:
             print(g(YELLOW, "\n  VPS Auto-Run dihentikan. Sampai jumpa! 👋"))
             break
 
         sesi_ke += 1
-        rest_countdown(rest_menit)
+
+        # ── Cegah istirahat dobel ────────────────────────────────────────────
+        # Kalau sesi tadi sudah istirahat sendiri (misal kena stop-loss), tidak
+        # perlu istirahat tambahan lagi di sini — langsung lanjut sesi baru.
+        if sudah_istirahat_internal:
+            print(g(DIM, "  ⏭  Sesi tadi sudah istirahat (stop-loss) — lanjut langsung tanpa jeda tambahan.\n"))
+        else:
+            rest_countdown(rest_menit)
 
 
 
 if __name__ == "__main__":
-    RESTART_DELAY = 60  # detik tunggu sebelum restart setelah crash tak terduga
+    RESTART_DELAY = int(CONFIG["restart_delay_detik"])   # detik tunggu sebelum restart setelah crash tak terduga
+    MAX_RESTART_ATTEMPTS = int(CONFIG["max_restart_attempts"])  # batas restart berturut-turut sebelum menyerah
+    restart_attempts = 0
     while True:
         try:
             main()
@@ -958,10 +967,21 @@ if __name__ == "__main__":
             print(g(RED, "  Script dihentikan — perbarui STAKE_API_KEY lalu jalankan ulang."))
             break
         except Exception as e:
+            restart_attempts += 1
+
+            if restart_attempts > MAX_RESTART_ATTEMPTS:
+                print(g(RED, f"\n  💥 Bot crash tak terduga: {e}"))
+                print(g(RED,
+                    f"  🚫 Sudah {restart_attempts - 1}x restart berturut-turut tanpa berhasil — "
+                    f"kemungkinan ada bug permanen (saldo habis, error API non-auth, dll)."
+                ))
+                print(g(RED, "  Script dihentikan total. Cek log di atas lalu perbaiki sebelum menjalankan ulang."))
+                break
+
             print(g(RED, f"\n  💥 Bot crash tak terduga: {e}"))
             print(g(YELLOW,
                 f"  🔄 Auto-restart dalam {RESTART_DELAY} detik... "
-                f"(Ctrl+C untuk batalkan)"
+                f"(percobaan {restart_attempts}/{MAX_RESTART_ATTEMPTS} · Ctrl+C untuk batalkan)"
             ))
             try:
                 time.sleep(RESTART_DELAY)
