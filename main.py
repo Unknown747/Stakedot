@@ -99,12 +99,13 @@ _DEFAULT_CONFIG = {
             "tile_indices":                 [0],
             "loss_multiplier":              "1.1",
             "cap_multiplier":               "2",
+            "double_loss_rest_menit":       0,
             "double_loss_rest_detik":       30,
             "throttle":                     True,
             "instant_reset":                False,
             "max_loss_override":            "15000",
             "dynamic_bet_pct":              "0.25",
-            "dynamic_bet_min_idr":          "200",
+            "dynamic_bet_min_idr":          "500",
             "dynamic_bet_max_idr":          "2000",
         },
     },
@@ -289,6 +290,16 @@ mutation {
 }
 """
 
+MINES_ACTIVE_QUERY = """
+query MinesGame {
+  minesGame {
+    id
+    active
+    state { ... on CasinoGameMines { mines minesCount } }
+  }
+}
+"""
+
 
 def gql(query, variables=None):
     """Kirim GraphQL request dan kembalikan data, atau raise Exception yang jelas."""
@@ -333,6 +344,39 @@ def gql(query, variables=None):
         raise Exception(f"Response tidak mengandung 'data': {data}")
 
     return data["data"]
+
+
+# ─── Active game check ────────────────────────────────────────────────────────
+
+def cek_mines_game_aktif() -> bool:
+    """
+    Cek apakah ada game Mines aktif di server saat ini.
+    Strategi dua lapis:
+      1. Coba MINES_ACTIVE_QUERY (ringan, read-only, tidak mengubah state).
+         Jika API mengembalikan active=True → ada game aktif.
+         Jika query tidak didukung (error) → lanjut ke lapisan 2.
+      2. Fallback: coba minesCashout.
+         Berhasil → berarti ada game aktif yang baru saja di-cashout (kembalikan True).
+         Gagal dengan "no active" / "not found" → tidak ada game (kembalikan False).
+         Gagal dengan error lain → asumsikan tidak ada game (kembalikan False).
+    Selalu kembalikan bool; tidak pernah raise Exception.
+    """
+    try:
+        data  = gql(MINES_ACTIVE_QUERY)
+        game  = (data or {}).get("minesGame") or {}
+        return bool(game.get("active"))
+    except Exception:
+        pass  # Query tidak dikenal atau error jaringan → coba cashout sebagai fallback
+
+    # Fallback: cashout-based detection
+    try:
+        gql(MINES_CASHOUT_MUTATION)
+        return True   # cashout berhasil → ada game aktif (sudah di-cashout)
+    except Exception as e:
+        no_game_keywords = ("no active", "not found", "no game", "no mines", "does not exist")
+        if any(k in str(e).lower() for k in no_game_keywords):
+            return False  # tidak ada game
+        return False      # error lain — asumsikan tidak ada game
 
 
 # ─── Helper ────────────────────────────────────────────────────────────────────
@@ -1148,22 +1192,29 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     profit_lock_level    = 0
 
     # ── Cek proaktif: ada game Mines aktif sisa crash/restart? ───────────────
-    for _startup_co in range(1, 4):   # retry hingga 3x, toleransi network blip
-        try:
-            gql(MINES_CASHOUT_MUTATION)
-            print(g(YELLOW,
-                "  ⚠️  Game Mines aktif ditemukan dari sesi sebelumnya — sudah di-cashout.\n"
-            ))
-            break   # cashout berhasil, lanjut
-        except Exception as _e:
-            _emsg = str(_e).lower()
-            # "no active game" / "not found" = normal, tidak ada game tersisa
-            if any(k in _emsg for k in ("no active", "not found", "no game", "no mines")):
+    # Gunakan cek_mines_game_aktif() — query ringan dulu, fallback ke cashout.
+    # Jika aktif, cashout dulu sebelum mulai ronde baru.
+    try:
+        _ada_game = cek_mines_game_aktif()
+    except Exception:
+        _ada_game = False
+    if _ada_game:
+        print(g(YELLOW,
+            "  ⚠️  Game Mines aktif ditemukan dari sesi sebelumnya — mencoba cashout..."
+        ))
+        for _startup_co in range(1, 4):
+            try:
+                gql(MINES_CASHOUT_MUTATION)
+                print(g(GREEN, "  ✅ Game lama berhasil di-cashout. Mulai sesi baru.\n"))
                 break
-            # Error lain (network, timeout) → retry sekali lagi
-            if _startup_co < 3:
-                time.sleep(2)
-            # Setelah 3x gagal: lanjut saja, betting loop akan handle jika masih ada
+            except Exception as _e:
+                if _startup_co < 3:
+                    time.sleep(2)
+                else:
+                    print(g(YELLOW,
+                        f"  ⚠️  Cashout startup gagal ({_e}) — "
+                        "betting loop akan coba lagi saat ronde pertama.\n"
+                    ))
 
     try:
         while True:

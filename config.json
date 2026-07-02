@@ -49,12 +49,13 @@
       "tile_indices": [0],
       "loss_multiplier": "1.1",
       "cap_multiplier": "2",
+      "double_loss_rest_menit": 0,
       "double_loss_rest_detik": 30,
       "throttle": true,
       "instant_reset": false,
       "max_loss_override": "15000",
       "dynamic_bet_pct": "0.25",
-      "dynamic_bet_min_idr": "200",
+      "dynamic_bet_min_idr": "500",
       "dynamic_bet_max_idr": "2000"
     }
   }
