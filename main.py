@@ -98,7 +98,7 @@ _DEFAULT_CONFIG = {
             "tile_indices":                 [0],
             "loss_multiplier":              "1.1",
             "cap_multiplier":               "2",
-            "double_loss_rest_menit":       3,
+            "double_loss_rest_detik":       30,
             "throttle":                     True,
             "instant_reset":                False,
             "max_loss_override":            "15000",
@@ -1016,6 +1016,13 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     mines_loss_multiplier       = Decimal(str(mines_profile["loss_multiplier"]))
     mines_cap                   = base_bet * Decimal(str(mines_profile["cap_multiplier"]))
     mines_double_loss_rest_menit = int(mines_profile.get("double_loss_rest_menit", 1))
+    # double_loss_rest_detik override — jika ada, pakai detik (lebih presisi untuk VPS)
+    _detik_override = mines_profile.get("double_loss_rest_detik")
+    if _detik_override is not None:
+        mines_double_loss_rest_detik = int(_detik_override)
+        mines_double_loss_rest_menit = 0   # nonaktifkan hitungan menit
+    else:
+        mines_double_loss_rest_detik = mines_double_loss_rest_menit * 60
     mines_throttle              = bool(mines_profile.get("throttle", True))
     mines_instant_reset         = bool(mines_profile.get("instant_reset", False))
     # Profil boleh override stop-loss global — dipakai profil "aman" untuk batas lebih ketat
@@ -1049,8 +1056,11 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     _reset_label = g(GREEN, "INSTANT (tiap menang)") if mines_instant_reset else g(YELLOW, "MODAL BALIK (tunggu balik modal dulu)")
     naik_pct = (mines_loss_multiplier - Decimal("1")) * 100
     print(f"  Recovery Bet  : {g(DIM, f'+{naik_pct:.0f}% tiap kalah')} · cap {g(YELLOW, fmt(mines_cap, currency))} · Reset: {_reset_label}")
-    if mines_double_loss_rest_menit > 0:
-        print(f"  Double-Loss   : istirahat {g(YELLOW, f'{mines_double_loss_rest_menit} menit')} jika kena ranjau 2x berturut-turut")
+    if mines_double_loss_rest_detik > 0:
+        _dl_label = (f"{mines_double_loss_rest_detik} detik"
+                     if mines_double_loss_rest_detik < 60
+                     else f"{mines_double_loss_rest_detik // 60} menit")
+        print(f"  Double-Loss   : istirahat {g(YELLOW, _dl_label)} jika kena ranjau 2x berturut-turut")
     else:
         print(f"  Double-Loss   : {g(DIM, 'tanpa jeda (profil wager)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
@@ -1280,12 +1290,22 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
             print(f"          {speed_str} · ⏱ {g(DIM, durasi_str)}")
 
             # ── Kena ranjau 2x berturut-turut → istirahat singkat ─────────────
-            if hasil_2_terakhir == [False, False] and mines_double_loss_rest_menit > 0:
-                print(g(RED,
-                    f"\n  💣 Kena ranjau 2x berturut-turut — istirahat "
-                    f"{mines_double_loss_rest_menit} menit untuk redakan emosi/modal..."
-                ))
-                rest_countdown(mines_double_loss_rest_menit)
+            if hasil_2_terakhir == [False, False] and mines_double_loss_rest_detik > 0:
+                _dl_str = (f"{mines_double_loss_rest_detik} detik"
+                           if mines_double_loss_rest_detik < 60
+                           else f"{mines_double_loss_rest_detik // 60} menit")
+                print(g(RED, f"\n  💣 Kena ranjau 2x berturut-turut — jeda {_dl_str}..."))
+                if mines_double_loss_rest_detik < 60:
+                    # Countdown pendek — tampilkan hitungan mundur per detik tanpa bar panjang
+                    try:
+                        for sisa in range(mines_double_loss_rest_detik, 0, -1):
+                            print(f"\r  ⏳ {g(YELLOW, str(sisa))} detik tersisa...   ", end="", flush=True)
+                            time.sleep(1)
+                        print(f"\r  {g(GREEN, '✅')} Jeda selesai.{' ' * 25}")
+                    except KeyboardInterrupt:
+                        print(f"\n  {g(YELLOW, '⏩')} Skip jeda.")
+                else:
+                    rest_countdown(mines_double_loss_rest_detik // 60)
                 hasil_2_terakhir = []
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
 

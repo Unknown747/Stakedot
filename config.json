@@ -48,7 +48,7 @@
       "tile_indices": [0],
       "loss_multiplier": "1.1",
       "cap_multiplier": "2",
-      "double_loss_rest_menit": 3,
+      "double_loss_rest_detik": 30,
       "throttle": true,
       "instant_reset": false,
       "max_loss_override": "15000"
