@@ -22,6 +22,10 @@ Money management deliberately differs from Limbo's on-loss-multiply: on loss, be
 **Why:** user explicitly designed and confirmed this recovery scheme distinct from Limbo's; also corrected a misconception that tile choice affects win probability — it's purely combinatorial (`C(24,2)/C(25,2)` for 1 mine, 2 reveals ≈ 92%).
 **How to apply:** keep Mines' `jalankan_strategy_mines_vip()` as its own function mirroring `jalankan_strategy_vip()`'s logging/CSV/stop-loss/checkpoint structure, but never merge its 3-call bet flow or ×1.5-recovery math into Limbo's single-call/percent-escalation logic.
 
+Mines odds/multiplier displayed in the CLI are computed live via exact combinatorics (`hitung_odds_mines`: `C(safe,reveals)/C(total,reveals)`), not hardcoded per mode — this made it trivial to add a second "agresif" profile (more mines, lower win chance, gentler ×1.3 recovery multiplier since losses are more frequent) without touching the odds-display code. Config stores multiple named profiles under `mines_profiles` (dict of dicts) rather than flat `mines_*` keys, selected via a one-time submenu after choosing Mines.
+**Why:** a second risk profile was requested right after Mines shipped; computing odds live instead of hardcoding avoided stale/wrong percentages when profile parameters change.
+**How to apply:** when adding another Mines profile or game variant, add a new named entry under `mines_profiles` (don't reintroduce flat `mines_*` config keys) and reuse `hitung_odds_mines()` for any displayed win-chance/multiplier text.
+
 ## Game/API mutation choice is a real product decision, not just internal logic
 The bot has been switched between Stake's Dice game and Limbo game (different GraphQL mutations/fields: `diceRoll` with target+condition vs `limboBet` with `multiplierTarget`). Win-chance/multiplier math (`multiplier ≈ 99 / win_chance_pct`) is shared, but the mutation, win-determination function, and bet display all need to change together when switching games.
 **Why:** these are different casino games with different API shapes; mixing them causes API errors or silent wrong-win detection.

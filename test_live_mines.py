@@ -13,6 +13,7 @@ from main import (
 )
 
 MAKS_RONDE = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+PROFILE    = sys.argv[2] if len(sys.argv) > 2 else "normal"
 
 if not API_KEY:
     print(g(RED, "❌ STAKE_API_KEY tidak ditemukan di environment."))
@@ -31,8 +32,8 @@ except Exception as e:
     sys.exit(1)
 
 print(g(GREEN, f"✅ Login sebagai: {g(BOLD, user['name'])}"))
-print(g(YELLOW, f"⚠️  Ini LIVE BET dengan uang asli, dibatasi keras {MAKS_RONDE} ronde saja.\n"))
+print(g(YELLOW, f"⚠️  Ini LIVE BET dengan uang asli, dibatasi keras {MAKS_RONDE} ronde saja. Profil: {PROFILE.upper()}\n"))
 
-jalankan_strategy_mines_vip(user, vps_mode=True, maks_ronde=MAKS_RONDE)
+jalankan_strategy_mines_vip(user, vps_mode=True, maks_ronde=MAKS_RONDE, profile=PROFILE)
 
 print(g(GREEN, "\n✅ Live test selesai — sesi dihentikan otomatis sesuai batas ronde."))

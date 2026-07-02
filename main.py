@@ -18,6 +18,7 @@ import random
 import csv
 import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
+from math import comb
 from datetime import datetime
 from typing import Optional
 
@@ -62,11 +63,24 @@ _DEFAULT_CONFIG = {
     "max_restart_attempts":            10,
 
     # ── Strategi Mines (opsional, dipilih lewat menu saat start) ────────────
-    "mines_count":                     1,
-    "mines_tile_indices":              [0, 24],
-    "mines_loss_multiplier":           "1.5",
-    "mines_cap_multiplier":            "5",
-    "mines_double_loss_rest_menit":    1,
+    # Dua profil: Normal (aman, ranjau sedikit) & Agresif (ranjau lebih banyak,
+    # multiplier lebih besar, tapi lebih sering kalah). Dipilih lewat submenu.
+    "mines_profiles": {
+        "normal": {
+            "mines_count":                  1,
+            "tile_indices":                 [0, 24],
+            "loss_multiplier":              "1.5",
+            "cap_multiplier":               "5",
+            "double_loss_rest_menit":       1,
+        },
+        "agresif": {
+            "mines_count":                  3,
+            "tile_indices":                 [0, 24],
+            "loss_multiplier":              "1.3",
+            "cap_multiplier":               "6",
+            "double_loss_rest_menit":       2,
+        },
+    },
 }
 
 
@@ -346,6 +360,23 @@ def mines_kena_ranjau(next_state: dict) -> bool:
     if not next_state:
         return False
     return bool(next_state.get("mines"))
+
+
+def hitung_odds_mines(total_tiles: int, mines: int, reveals: int):
+    """
+    Hitung peluang menang (kombinatorik eksak, sesuai aturan game) dan
+    multiplier fair (sebelum house edge ~1%) untuk kombinasi ranjau/reveal.
+    Real multiplier dari API akan sedikit lebih rendah dari nilai fair ini.
+    """
+    aman = total_tiles - mines
+    if reveals > aman or reveals <= 0:
+        return Decimal("0"), Decimal("0")
+    win_chance = Decimal(comb(aman, reveals)) / Decimal(comb(total_tiles, reveals))
+    multiplier_fair = (Decimal("1") / win_chance) if win_chance > 0 else Decimal("0")
+    return (
+        (win_chance * 100).quantize(Decimal("0.1")),
+        multiplier_fair.quantize(Decimal("0.001")),
+    )
 
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
@@ -913,7 +944,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Option
         return False
 
 
-def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: Optional[int] = None):
+def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: Optional[int] = None, profile: str = "normal"):
     """
     Auto-bet Strategy VIP: MINES, 1 ranjau dari 25 kotak, buka 2 kotak fixed
     lalu auto cash-out (≈92% menang, ≈1,08x per menang).
@@ -941,22 +972,25 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     max_loss_limit      = Decimal(str(CONFIG["max_loss_limit"]))
     topup_alert_idr     = Decimal(str(CONFIG["topup_alert_idr"]))
 
-    mines_count           = int(CONFIG["mines_count"])
-    mines_fields          = [int(x) for x in CONFIG["mines_tile_indices"]]
-    mines_loss_multiplier = Decimal(str(CONFIG["mines_loss_multiplier"]))
-    mines_cap             = base_bet * Decimal(str(CONFIG["mines_cap_multiplier"]))
-    mines_double_loss_rest_menit = int(CONFIG["mines_double_loss_rest_menit"])
+    mines_profile         = CONFIG["mines_profiles"].get(profile) or CONFIG["mines_profiles"]["normal"]
+    mines_count           = int(mines_profile["mines_count"])
+    mines_fields          = [int(x) for x in mines_profile["tile_indices"]]
+    mines_loss_multiplier = Decimal(str(mines_profile["loss_multiplier"]))
+    mines_cap             = base_bet * Decimal(str(mines_profile["cap_multiplier"]))
+    mines_double_loss_rest_menit = int(mines_profile["double_loss_rest_menit"])
+    win_chance_pct, multiplier_fair = hitung_odds_mines(25, mines_count, len(mines_fields))
 
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
     print_vip_status(flag_progress)
 
     # ── Info konfigurasi sesi ─────────────────────────────────────────────────
-    print_section("STRATEGY VIP — MINES 1 RANJAU  (RECOVERY 1.5x)")
+    print_section(f"STRATEGY VIP — MINES {mines_count} RANJAU  ({profile.upper()})")
     print(f"  Game          : {g(BOLD, 'MINES')}  {g(DIM, f'({mines_count} ranjau dari 25 kotak · buka {len(mines_fields)} kotak fixed)')}")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
     print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
-    print(f"  Peluang Menang: {g(BOLD, '≈92%')}  |  Multiplier per menang: {g(BOLD, '≈1,08x')} {g(DIM, '(dari API, bukan estimasi tetap)')}")
+    print(f"  Profil        : {g(BOLD, profile.upper())}")
+    print(f"  Peluang Menang: {g(BOLD, f'≈{win_chance_pct}%')}  |  Multiplier fair: {g(BOLD, f'≈{multiplier_fair}x')} {g(DIM, '(real dari API sedikit lebih rendah, house edge ~1%)')}")
     print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
     print(f"  Recovery      : {g(GREEN, 'AKTIF')}  "
@@ -1413,14 +1447,38 @@ def main():
     # ── Menu pilihan game: dipilih SEKALI di awal, lalu loop terus di game itu ─
     print_section("PILIH GAME")
     print(f"  {g(BOLD, '1')}. Limbo  {g(DIM, '(on-loss multiply +2%)')}")
-    print(f"  {g(BOLD, '2')}. Mines  {g(DIM, '(1 ranjau · recovery 1.5x)')}")
+    print(f"  {g(BOLD, '2')}. Mines  {g(DIM, '(1/3 ranjau · recovery 1.5x/1.3x)')}")
     try:
         pilihan = input(g(YELLOW, "\n  Pilih game (1/2, default 1): ")).strip()
     except (EOFError, KeyboardInterrupt):
         pilihan = ""
     game_terpilih = "mines" if pilihan == "2" else "limbo"
-    strategy_fn   = jalankan_strategy_mines_vip if game_terpilih == "mines" else jalankan_strategy_vip
-    print(g(GREEN, f"\n  ▶  Game terpilih: {g(BOLD, game_terpilih.upper())}\n"))
+    mines_profile_terpilih = "normal"
+
+    if game_terpilih == "mines":
+        _normal_profile  = CONFIG["mines_profiles"]["normal"]
+        _agresif_profile = CONFIG["mines_profiles"]["agresif"]
+        n_odds, n_mult = hitung_odds_mines(25, _normal_profile["mines_count"], len(_normal_profile["tile_indices"]))
+        a_odds, a_mult = hitung_odds_mines(25, _agresif_profile["mines_count"], len(_agresif_profile["tile_indices"]))
+        n_count = _normal_profile["mines_count"]
+        a_count = _agresif_profile["mines_count"]
+        print()
+        print(f"  {g(BOLD, '1')}. Normal   {g(DIM, f'({n_count} ranjau · ≈{n_odds}% menang · ≈{n_mult}x)')}")
+        print(f"  {g(BOLD, '2')}. Agresif  {g(DIM, f'({a_count} ranjau · ≈{a_odds}% menang · ≈{a_mult}x)')}")
+        try:
+            sub_pilihan = input(g(YELLOW, "\n  Pilih profil Mines (1/2, default 1): ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            sub_pilihan = ""
+        mines_profile_terpilih = "agresif" if sub_pilihan == "2" else "normal"
+
+    if game_terpilih == "mines":
+        strategy_fn = lambda user, vps_mode, maks_ronde=None: jalankan_strategy_mines_vip(
+            user=user, vps_mode=vps_mode, maks_ronde=maks_ronde, profile=mines_profile_terpilih)
+        label_sesi = f"MINES-{mines_profile_terpilih.upper()}"
+    else:
+        strategy_fn = jalankan_strategy_vip
+        label_sesi  = "LIMBO"
+    print(g(GREEN, f"\n  ▶  Game terpilih: {g(BOLD, label_sesi)}\n"))
 
     # ── VPS Auto-Run: jalan 24/7, otomatis tanpa input ───────────────────────
     print(g(GREEN, "  ✅ VPS Auto-Run aktif — sesi baru otomatis setelah setiap sesi selesai"))
