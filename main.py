@@ -95,7 +95,22 @@ def load_config():
             data = json.load(f)
         if not isinstance(data, dict):
             raise ValueError("config.json harus berisi objek JSON (key-value)")
-        return {**_DEFAULT_CONFIG, **data}
+        merged = {**_DEFAULT_CONFIG, **data}
+        # Merge nested mines_profiles per-profil — supaya kalau config.json cuma
+        # menimpa/mendefinisikan sebagian profil, profil lain tetap ada (tidak
+        # hilang seluruhnya seperti merge dangkal biasa) dan tidak crash saat
+        # dilookup di main() / jalankan_strategy_mines_vip().
+        default_profiles = _DEFAULT_CONFIG.get("mines_profiles", {})
+        user_profiles     = data.get("mines_profiles", {})
+        if isinstance(user_profiles, dict):
+            merged_profiles = {k: dict(v) for k, v in default_profiles.items()}
+            for nama, isi in user_profiles.items():
+                if isinstance(isi, dict) and nama in merged_profiles:
+                    merged_profiles[nama].update(isi)
+                else:
+                    merged_profiles[nama] = isi
+            merged["mines_profiles"] = merged_profiles
+        return merged
     except (json.JSONDecodeError, ValueError, OSError) as e:
         print(f"❌ config.json error ({e}) — pakai nilai default sebagai fallback.")
         return dict(_DEFAULT_CONFIG)
@@ -782,7 +797,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Option
             elif sisa_wager <= 0:
                 speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  {g(GREEN, '✅ 1Jt!')}"
             else:
-                speed_str = f"-- b/m"
+                speed_str = "-- b/m"
 
             bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
             loss_k = idr_k(total_loss)
@@ -1036,12 +1051,12 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
             identifier = str(uuid.uuid4())
             bet_sebelum_ini = current_bet
             try:
-                bet_result = gql(MINES_BET_MUTATION, {
+                gql(MINES_BET_MUTATION, {
                     "amount":     float(current_bet),
                     "currency":   currency,
                     "minesCount": mines_count,
                     "identifier": identifier,
-                })["minesBet"]
+                })
                 consecutive_err = 0
             except PermissionError as e:
                 print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
@@ -1202,7 +1217,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
             elif sisa_wager <= 0:
                 speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  {g(GREEN, '✅ 1Jt!')}"
             else:
-                speed_str = f"-- b/m"
+                speed_str = "-- b/m"
 
             bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
             loss_k = idr_k(total_loss)
