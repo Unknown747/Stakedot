@@ -56,7 +56,10 @@
       "max_loss_override": "15000",
       "dynamic_bet_pct": "0.25",
       "dynamic_bet_min_idr": "500",
-      "dynamic_bet_max_idr": "2000"
+      "dynamic_bet_max_idr": "2000",
+      "mini_session_rounds": 100,
+      "mini_session_rest_detik": 30,
+      "mini_session_min_winrate_pct": "90"
     }
   }
 }

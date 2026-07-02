@@ -107,6 +107,13 @@ _DEFAULT_CONFIG = {
             "dynamic_bet_pct":              "0.25",
             "dynamic_bet_min_idr":          "500",
             "dynamic_bet_max_idr":          "2000",
+            # ── Mini-session refresh (ganti room) ────────────────────────────
+            # Setiap N spin, evaluasi batch. Kalau win rate < threshold atau
+            # net batch negatif → reset bet ke base + jeda sebentar (ganti room).
+            # Set mini_session_rounds=0 untuk nonaktifkan fitur ini.
+            "mini_session_rounds":          100,
+            "mini_session_rest_detik":      30,
+            "mini_session_min_winrate_pct": "90",
         },
     },
 }
@@ -1090,6 +1097,10 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
         mines_double_loss_rest_detik = mines_double_loss_rest_menit * 60
     mines_throttle              = bool(mines_profile.get("throttle", True))
     mines_instant_reset         = bool(mines_profile.get("instant_reset", False))
+    # ── Mini-session refresh ───────────────────────────────────────────────────
+    mini_session_rounds         = int(mines_profile.get("mini_session_rounds", 0))
+    mini_session_rest_detik     = int(mines_profile.get("mini_session_rest_detik", 30))
+    mini_session_min_winrate    = Decimal(str(mines_profile.get("mini_session_min_winrate_pct", "90")))
     # Profil boleh override stop-loss global — dipakai profil "aman" untuk batas lebih ketat
     if "max_loss_override" in mines_profile:
         max_loss_limit = Decimal(str(mines_profile["max_loss_override"]))
@@ -1155,6 +1166,12 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
         print(f"  Double-Loss   : istirahat {g(YELLOW, _dl_label)} jika kena ranjau 2x berturut-turut")
     else:
         print(f"  Double-Loss   : {g(DIM, 'tanpa jeda (profil wager)')}")
+    if mini_session_rounds > 0:
+        print(f"  Ganti Room    : {g(GREEN, 'AKTIF')} — evaluasi setiap {g(BOLD, str(mini_session_rounds))} spin"
+              f" · threshold WR {g(YELLOW, f'{mini_session_min_winrate:.0f}%')}"
+              f" · jeda {g(CYAN, f'{mini_session_rest_detik} dtk')} jika hasil buruk")
+    else:
+        print(f"  Ganti Room    : {g(DIM, 'nonaktif')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
     # ── State tracker ────────────────────────────────────────────────────────
@@ -1183,6 +1200,12 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     cap_hit_count         = 0
     hasil_2_terakhir      = []   # True=menang, False=kalah — deteksi kena ranjau 2x berturut
     _game_aktif          = False  # True setelah minesBet sukses & sebelum cashout/loss
+
+    # ── Mini-session (ganti room) state ───────────────────────────────────────
+    batch_wins           = 0
+    batch_losses         = 0
+    batch_net            = Decimal("0")
+    batch_ke             = 1     # nomor batch saat ini
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None
@@ -1323,8 +1346,11 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
 
             if won:
                 wins += 1
+                batch_wins += 1
             else:
                 losses += 1
+                batch_losses += 1
+            batch_net += profit   # profit negatif saat kalah, positif saat menang
 
             # ── Recovery 1.5x: naik saat kalah, reset saat modal balik ────────
             hasil_2_terakhir.append(won)
@@ -1467,6 +1493,60 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                     rest_countdown(mines_double_loss_rest_detik // 60)
                 hasil_2_terakhir = []
                 print(g(GREEN, "  ▶  Lanjut betting...\n"))
+
+            # ── Mini-session refresh: evaluasi setiap N spin (ganti room) ──────
+            if mini_session_rounds > 0 and ronde % mini_session_rounds == 0:
+                batch_total    = batch_wins + batch_losses
+                batch_winrate  = (Decimal(batch_wins) / Decimal(batch_total) * 100
+                                  if batch_total > 0 else Decimal("0"))
+                perlu_refresh  = batch_net < 0 or batch_winrate < mini_session_min_winrate
+
+                _bc = RED if perlu_refresh else GREEN
+                _bl = "🔄 GANTI ROOM" if perlu_refresh else "✅ LANJUT"
+                print(g(_bc,
+                    f"\n  ══════ MINI-SESI #{batch_ke} SELESAI ({mini_session_rounds} spin) ══════"
+                ))
+                print(
+                    f"  {_bl}  │  "
+                    f"W/L {g(GREEN, str(batch_wins))}/{g(RED, str(batch_losses))} "
+                    f"({g(BOLD, f'{batch_winrate:.1f}%')})  │  "
+                    f"Net batch: {g(GREEN if batch_net >= 0 else RED, ('+' if batch_net >= 0 else '') + idr_k(batch_net) + ' IDR')}"
+                )
+
+                if perlu_refresh:
+                    alasan = []
+                    if batch_winrate < mini_session_min_winrate:
+                        alasan.append(f"WR {batch_winrate:.1f}% < {mini_session_min_winrate:.0f}%")
+                    if batch_net < 0:
+                        alasan.append(f"net batch rugi {idr_k(batch_net)} IDR")
+                    print(g(YELLOW, f"  Alasan: {', '.join(alasan)}"))
+                    print(g(YELLOW,
+                        f"  Reset bet ke {fmt(base_bet, currency)} & jeda {mini_session_rest_detik} detik...\n"
+                    ))
+                    # Reset state seperti "pindah room"
+                    current_bet      = base_bet
+                    streak_net       = Decimal("0")
+                    loss_streak      = 0
+                    hasil_2_terakhir = []
+                    # Countdown jeda singkat
+                    try:
+                        for _sisa in range(mini_session_rest_detik, 0, -1):
+                            print(
+                                f"\r  🔄 Ganti room dalam {g(YELLOW, str(_sisa))} detik...   ",
+                                end="", flush=True
+                            )
+                            time.sleep(1)
+                        print(f"\r  {g(GREEN, '✅')} Siap — mulai batch #{batch_ke + 1}.{' ' * 30}\n")
+                    except KeyboardInterrupt:
+                        print(f"\n  {g(YELLOW, '⏩')} Skip jeda ganti room.\n")
+                else:
+                    print(g(DIM, f"  Hasil batch bagus — lanjut tanpa jeda.\n"))
+
+                # Reset counter batch
+                batch_ke    += 1
+                batch_wins   = 0
+                batch_losses = 0
+                batch_net    = Decimal("0")
 
             # ── Milestone setiap Rp1 juta wager ──────────────────────────────
             if total_volume >= next_million_notif:
