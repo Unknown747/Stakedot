@@ -1137,6 +1137,8 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None
+    bal_dec              = None   # inisialisasi — cegah crash saat menang di ronde pertama
+    bal_amount           = None
     profit_lock_idr      = Decimal(str(CONFIG["profit_lock_idr"]))
     profit_lock_level    = 0
 
