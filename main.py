@@ -1138,6 +1138,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     max_bet_reached       = base_bet
     cap_hit_count         = 0
     hasil_2_terakhir      = []   # True=menang, False=kalah — deteksi kena ranjau 2x berturut
+    _game_aktif          = False  # True setelah minesBet sukses & sebelum cashout/loss
 
     # ── Profit Lock & Balance Tracking ───────────────────────────────────────
     saldo_awal           = None
@@ -1147,13 +1148,22 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     profit_lock_level    = 0
 
     # ── Cek proaktif: ada game Mines aktif sisa crash/restart? ───────────────
-    try:
-        gql(MINES_CASHOUT_MUTATION)
-        print(g(YELLOW,
-            "  ⚠️  Game Mines aktif ditemukan dari sesi sebelumnya — sudah di-cashout.\n"
-        ))
-    except Exception:
-        pass  # Normal: tidak ada game aktif, lanjut
+    for _startup_co in range(1, 4):   # retry hingga 3x, toleransi network blip
+        try:
+            gql(MINES_CASHOUT_MUTATION)
+            print(g(YELLOW,
+                "  ⚠️  Game Mines aktif ditemukan dari sesi sebelumnya — sudah di-cashout.\n"
+            ))
+            break   # cashout berhasil, lanjut
+        except Exception as _e:
+            _emsg = str(_e).lower()
+            # "no active game" / "not found" = normal, tidak ada game tersisa
+            if any(k in _emsg for k in ("no active", "not found", "no game", "no mines")):
+                break
+            # Error lain (network, timeout) → retry sekali lagi
+            if _startup_co < 3:
+                time.sleep(2)
+            # Setelah 3x gagal: lanjut saja, betting loop akan handle jika masih ada
 
     try:
         while True:
@@ -1168,6 +1178,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                     "minesCount": mines_count,
                     "identifier": identifier,
                 })
+                _game_aktif     = True   # ronde terbuka di server
                 consecutive_err = 0
             except PermissionError as e:
                 print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
@@ -1227,6 +1238,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
 
             if kena_ranjau:
                 # ── Kalah: ronde otomatis selesai, tidak perlu cashout ─────────
+                _game_aktif = False   # server otomatis tutup ronde saat kena ranjau
                 amount     = current_bet
                 payout     = Decimal("0")
                 user_bals  = next_result.get("user", {}).get("balances", [])
@@ -1234,6 +1246,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                 # ── 3. Aman: kunci profit dengan minesCashout ──────────────────
                 try:
                     cashout_result = gql(MINES_CASHOUT_MUTATION)["minesCashout"]
+                    _game_aktif     = False   # ronde selesai, cashout berhasil
                     consecutive_err = 0
                 except PermissionError as e:
                     print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
@@ -1468,6 +1481,26 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     except KeyboardInterrupt:
         print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
         stopped_by_user = True
+        # ── Cashout darurat: tutup game yang masih terbuka ────────────────────
+        # Ctrl+C saat minesNext/minesCashout berjalan bisa meninggalkan game
+        # aktif di server. Cashout di sini mencegah error "active Mines game"
+        # saat bot dijalankan ulang.
+        if _game_aktif:
+            print(g(YELLOW, "  🔄 Menutup game Mines yang masih terbuka..."))
+            for _kbi in range(1, 4):
+                try:
+                    gql(MINES_CASHOUT_MUTATION)
+                    print(g(GREEN, "  ✅ Game berhasil di-cashout sebelum keluar."))
+                    _game_aktif = False
+                    break
+                except Exception as _kbe:
+                    if _kbi < 3:
+                        time.sleep(2)
+                    else:
+                        print(g(RED,
+                            f"  ⚠️  Cashout darurat gagal ({_kbe}) — "
+                            "jika bot dijalankan ulang, cashout otomatis akan dicoba saat startup."
+                        ))
 
     # ── Ringkasan akhir sesi Mines ─────────────────────────────────────────────
     total    = wins + losses
