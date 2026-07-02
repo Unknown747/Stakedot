@@ -1225,12 +1225,17 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
         print(g(YELLOW,
             "  ⚠️  Game Mines aktif ditemukan dari sesi sebelumnya — mencoba cashout..."
         ))
+        _NO_GAME_KW = ("no active", "not found", "no game", "no mines", "does not exist", "already finished")
         for _startup_co in range(1, 4):
             try:
                 gql(MINES_CASHOUT_MUTATION)
                 print(g(GREEN, "  ✅ Game lama berhasil di-cashout. Mulai sesi baru.\n"))
                 break
             except Exception as _e:
+                if any(k in str(_e).lower() for k in _NO_GAME_KW):
+                    # Sudah di-cashout sebelumnya (misal oleh cek_mines_game_aktif fallback)
+                    print(g(DIM, "  ℹ️  Game sudah tidak aktif — lanjut.\n"))
+                    break
                 if _startup_co < 3:
                     time.sleep(2)
                 else:
@@ -1241,6 +1246,9 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
 
     try:
         while True:
+
+            # ── Inisialisasi defensive — cegah NameError jika loop continue lebih awal ──
+            profit = Decimal("0")
 
             # ── 1. Mulai ronde: minesBet ──────────────────────────────────────
             identifier = str(uuid.uuid4())
@@ -1265,6 +1273,8 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                         "\n  🔄 Auto-cashout game lama..."
                     ))
                     cashout_ok = False
+                    _NO_GAME_KW = ("no active", "not found", "no game", "no mines",
+                                   "does not exist", "already finished")
                     for _co_attempt in range(1, 6):   # retry cashout hingga 5x
                         try:
                             gql(MINES_CASHOUT_MUTATION)
@@ -1273,6 +1283,13 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                             cashout_ok = True
                             break
                         except Exception as ce:
+                            _ce_msg = str(ce).lower()
+                            if any(k in _ce_msg for k in _NO_GAME_KW):
+                                # Game sudah otomatis tutup (mine hit / expired) — anggap OK
+                                print(g(DIM, f"  ℹ️  Game sudah tidak aktif (auto-close) — retry ronde baru.\n"))
+                                consecutive_err = 0
+                                cashout_ok = True
+                                break
                             print(g(RED, f"  ❌ Cashout attempt {_co_attempt}/5 gagal: {ce}"))
                             time.sleep(3)
                     if not cashout_ok:
@@ -1618,6 +1635,8 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
         # saat bot dijalankan ulang.
         if _game_aktif:
             print(g(YELLOW, "  🔄 Menutup game Mines yang masih terbuka..."))
+            _NO_GAME_KW = ("no active", "not found", "no game", "no mines",
+                           "does not exist", "already finished")
             for _kbi in range(1, 4):
                 try:
                     gql(MINES_CASHOUT_MUTATION)
@@ -1625,6 +1644,11 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                     _game_aktif = False
                     break
                 except Exception as _kbe:
+                    if any(k in str(_kbe).lower() for k in _NO_GAME_KW):
+                        # Game sudah tutup sendiri (mine hit saat Ctrl+C) — bukan masalah
+                        print(g(DIM, "  ℹ️  Game sudah tidak aktif (auto-close)."))
+                        _game_aktif = False
+                        break
                     if _kbi < 3:
                         time.sleep(2)
                     else:
