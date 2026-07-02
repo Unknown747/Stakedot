@@ -54,6 +54,7 @@ _DEFAULT_CONFIG = {
     "topup_alert_idr":                 "37500",
     "profit_lock_idr":                 "10000",
     "take_profit_idr":                 "2500",
+    "session_take_profit_idr":         "10000",
     "on_loss_multiply_enabled":        True,
     "on_loss_multiply_pct":            "2",
     "on_loss_multiply_cap_multiplier": "5",
@@ -102,6 +103,9 @@ _DEFAULT_CONFIG = {
             "throttle":                     True,
             "instant_reset":                False,
             "max_loss_override":            "15000",
+            "dynamic_bet_pct":              "0.25",
+            "dynamic_bet_min_idr":          "200",
+            "dynamic_bet_max_idr":          "2000",
         },
     },
 }
@@ -671,6 +675,7 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Option
     sesi_mulai           = datetime.now()         # Timer durasi bot berjalan
     take_profit_idr      = Decimal(str(CONFIG["take_profit_idr"]))  # Jeda 5 dtk setiap kelipatan profit ini
     next_take_profit     = take_profit_idr        # Threshold profit berikutnya
+    session_take_profit  = Decimal(str(CONFIG.get("session_take_profit_idr", "0")))  # Hard-stop sesi saat profit ini
 
     # ── On-Loss Multiply state ────────────────────────────────────────────────
     current_bet         = base_bet    # Bet aktif saat ini
@@ -857,6 +862,18 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Option
                 ))
                 time.sleep(5)
 
+            # ── Session Take-Profit: stop sesi langsung saat profit target tercapai ─
+            if session_take_profit > 0 and saldo_awal is not None and bal_dec is not None:
+                net_saldo = bal_dec - saldo_awal
+                if net_saldo >= session_take_profit:
+                    print(g(GREEN,
+                        f"\n  🎯 TAKE-PROFIT +{idr_k(net_saldo)} IDR tercapai! "
+                        f"(target: +{idr_k(session_take_profit)} IDR)\n"
+                        f"  Sesi ini selesai — mulai sesi baru fresh.\n"
+                    ))
+                    sudah_istirahat_internal = False
+                    break
+
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:
                 jeda = random.randint(5, 10)
@@ -1030,6 +1047,28 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
         max_loss_limit = Decimal(str(mines_profile["max_loss_override"]))
     win_chance_pct, multiplier_fair = hitung_odds_mines(25, mines_count, len(mines_fields))
 
+    # ── Bet Dinamis: base bet = % dari saldo saat ini ─────────────────────────
+    _dyn_pct_raw = mines_profile.get("dynamic_bet_pct")
+    dynamic_bet_enabled = _dyn_pct_raw is not None
+    if dynamic_bet_enabled:
+        dynamic_bet_pct = Decimal(str(_dyn_pct_raw)) / Decimal("100")
+        dynamic_bet_min = Decimal(str(mines_profile.get("dynamic_bet_min_idr", str(CONFIG["base_bet"]))))
+        dynamic_bet_max = Decimal(str(mines_profile.get("dynamic_bet_max_idr", "99999")))
+        # Hitung initial base_bet dari saldo awal (user dict dikirim dari caller)
+        _init_bals = user.get("balances", [])
+        _init_bal  = to_dec(next(
+            (b["available"]["amount"] for b in _init_bals
+             if b["available"]["currency"] == currency), "0"
+        ))
+        if _init_bal > 0:
+            _computed  = (_init_bal * dynamic_bet_pct).quantize(_quanta(currency), rounding=ROUND_DOWN)
+            base_bet   = max(dynamic_bet_min, min(_computed, dynamic_bet_max))
+            mines_cap  = base_bet * Decimal(str(mines_profile["cap_multiplier"]))
+    else:
+        dynamic_bet_pct = Decimal("0")
+        dynamic_bet_min = base_bet
+        dynamic_bet_max = base_bet
+
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
     flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
     print_vip_status(flag_progress)
@@ -1049,7 +1088,12 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     print(f"  {g(CYAN, '─' * 52)}")
     print(f"  Game          : {g(BOLD, 'MINES')}  {g(DIM, f'({mines_count} ranjau dari 25 kotak · buka {len(mines_fields)} kotak fixed)')}")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
-    print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
+    if dynamic_bet_enabled:
+        print(f"  Bet Dinamis   : {g(GREEN, 'AKTIF')} — {float(dynamic_bet_pct)*100:.2f}% saldo "
+              f"· min {fmt(dynamic_bet_min, currency)} · max {fmt(dynamic_bet_max, currency)}")
+        print(f"  Base Bet Awal : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '(dihitung otomatis dari saldo)')}")
+    else:
+        print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
     print(f"  Peluang Menang: {g(BOLD, f'≈{win_chance_pct}%')}  |  Multiplier fair: {g(BOLD, f'≈{multiplier_fair}x')}")
     print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat lalu lanjut"
           + (g(GREEN, "  ← lebih ketat dari default") if "max_loss_override" in mines_profile else ""))
@@ -1080,6 +1124,7 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     sesi_mulai           = datetime.now()
     take_profit_idr      = Decimal(str(CONFIG["take_profit_idr"]))
     next_take_profit     = take_profit_idr
+    session_take_profit  = Decimal(str(CONFIG.get("session_take_profit_idr", "0")))  # Hard-stop sesi
 
     # ── Recovery 1.5x state ────────────────────────────────────────────────────
     current_bet          = base_bet
@@ -1186,6 +1231,17 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                 streak_net += profit
                 should_reset = mines_instant_reset or (streak_net >= 0)
                 if should_reset:
+                    # ── Bet Dinamis: recalculate base_bet dari saldo terbaru ──
+                    if dynamic_bet_enabled and bal_dec is not None and bal_dec > 0:
+                        _computed  = (bal_dec * dynamic_bet_pct).quantize(_quanta(currency), rounding=ROUND_DOWN)
+                        _new_base  = max(dynamic_bet_min, min(_computed, dynamic_bet_max))
+                        if _new_base != base_bet:
+                            print(g(DIM,
+                                f"  📊 Bet dinamis: saldo {idr_k(bal_dec)} IDR "
+                                f"→ base bet {fmt(_new_base, currency)}"
+                            ))
+                        base_bet  = _new_base
+                        mines_cap = base_bet * Decimal(str(mines_profile["cap_multiplier"]))
                     if current_bet != base_bet:
                         _reset_tag = "INSTANT RESET" if mines_instant_reset else "MODAL BALIK"
                         print(g(GREEN,
@@ -1322,6 +1378,18 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                     f"\n  💰 Profit +{idr_k(net_sesi)} IDR — jeda 5 detik...\n"
                 ))
                 time.sleep(5)
+
+            # ── Session Take-Profit: stop sesi langsung saat profit target tercapai ─
+            if session_take_profit > 0 and saldo_awal is not None and bal_dec is not None:
+                net_saldo = bal_dec - saldo_awal
+                if net_saldo >= session_take_profit:
+                    print(g(GREEN,
+                        f"\n  🎯 TAKE-PROFIT +{idr_k(net_saldo)} IDR tercapai! "
+                        f"(target: +{idr_k(session_take_profit)} IDR)\n"
+                        f"  Sesi ini selesai — mulai sesi baru fresh.\n"
+                    ))
+                    sudah_istirahat_internal = False
+                    break
 
             # ── Cek stop-loss ─────────────────────────────────────────────────
             if total_loss >= max_loss_limit:

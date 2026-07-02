@@ -8,6 +8,7 @@
   "topup_alert_idr": "37500",
   "profit_lock_idr": "10000",
   "take_profit_idr": "2500",
+  "session_take_profit_idr": "10000",
   "on_loss_multiply_enabled": true,
   "on_loss_multiply_pct": "2",
   "on_loss_multiply_cap_multiplier": "5",
@@ -51,7 +52,10 @@
       "double_loss_rest_detik": 30,
       "throttle": true,
       "instant_reset": false,
-      "max_loss_override": "15000"
+      "max_loss_override": "15000",
+      "dynamic_bet_pct": "0.25",
+      "dynamic_bet_min_idr": "200",
+      "dynamic_bet_max_idr": "2000"
     }
   }
 }
