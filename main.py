@@ -102,7 +102,7 @@ _DEFAULT_CONFIG = {
             "double_loss_rest_menit":       0,
             "double_loss_rest_detik":       30,
             "throttle":                     True,
-            "instant_reset":                False,
+            "instant_reset":                True,
             "max_loss_override":            "15000",
             "dynamic_bet_pct":              "0.25",
             "dynamic_bet_min_idr":          "500",
