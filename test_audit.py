@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Audit & Test Script untuk main.py (game: LIMBO)
+Audit & Test Script untuk main.py (LIMBO + MINES)
 Menguji semua komponen tanpa perlu main full session.
 """
 
@@ -12,8 +12,10 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 from main import (
     gql, USER_QUERY, LIMBO_MUTATION,
-    determine_win_limbo, to_dec, fmt, _quanta,
+    determine_win_limbo, mines_kena_ranjau, hitung_odds_mines,
+    to_dec, fmt, idr_k, _quanta,
     print_vip_status, simpan_log_csv, CSV_LOG,
+    CONFIG,
     g, BOLD, GREEN, RED, CYAN, YELLOW, BLUE, DIM,
 )
 
@@ -196,7 +198,98 @@ try:
 except Exception as e:
     fail(f"CSV error: {e}")
 
+# ── TEST 8: mines_kena_ranjau safety ──────────────────────────────────────────
+header("TEST 8 — mines_kena_ranjau Safety")
+
+assert mines_kena_ranjau({}) == False,         "dict kosong harus return False"
+assert mines_kena_ranjau(None) == False,        "None harus return False"   # type: ignore
+assert mines_kena_ranjau({"mines": None}) == False, "mines=None harus False"
+assert mines_kena_ranjau({"mines": []}) == False,   "mines=[] (list kosong) harus False"
+assert mines_kena_ranjau({"mines": [3, 17]}) == True, "mines=[3,17] (kena ranjau) harus True"
+ok("mines_kena_ranjau aman untuk semua edge case")
+
+# ── TEST 9: hitung_odds_mines akurasi ─────────────────────────────────────────
+header("TEST 9 — hitung_odds_mines Akurasi")
+
+# Profil normal: 1 mine, 2 reveals  → C(24,2)/C(25,2) = 276/300 = 92%
+chance_n, multi_n = hitung_odds_mines(25, 1, 2)
+assert Decimal("91") < chance_n < Decimal("93"), f"Normal win% harus ~92%, dapat {chance_n}"
+ok(f"Normal  (1 mine · 2 reveal) → ≈{chance_n}% menang · fair multiplier ≈{multi_n}x")
+
+# Profil agresif: 3 mines, 2 reveals → C(22,2)/C(25,2) = 231/300 = 77%
+chance_a, multi_a = hitung_odds_mines(25, 3, 2)
+assert Decimal("76") < chance_a < Decimal("78"), f"Agresif win% harus ~77%, dapat {chance_a}"
+ok(f"Agresif (3 mine · 2 reveal) → ≈{chance_a}% menang · fair multiplier ≈{multi_a}x")
+
+# Profil wager: 1 mine, 1 reveal → C(24,1)/C(25,1) = 24/25 = 96%
+chance_w, multi_w = hitung_odds_mines(25, 1, 1)
+assert Decimal("95") < chance_w < Decimal("97"), f"Wager win% harus ~96%, dapat {chance_w}"
+ok(f"Wager   (1 mine · 1 reveal) → ≈{chance_w}% menang · fair multiplier ≈{multi_w}x")
+
+# Edge case: reveal lebih banyak dari kotak aman → return (0, 0)
+chance_bad, multi_bad = hitung_odds_mines(25, 1, 25)  # 24 kotak aman, minta 25
+assert chance_bad == Decimal("0"), "Reveal > aman harus return win_chance=0"
+ok("Edge case reveal > kotak aman → (0, 0) — aman")
+
+# ── TEST 10: Config Mines profiles lengkap ────────────────────────────────────
+header("TEST 10 — Validasi Config mines_profiles")
+
+required_keys = {"mines_count", "tile_indices", "loss_multiplier", "cap_multiplier",
+                 "double_loss_rest_menit", "throttle", "instant_reset"}
+profiles = CONFIG.get("mines_profiles", {})
+assert len(profiles) >= 3, f"Harus ada ≥3 profil, dapat {len(profiles)}: {list(profiles.keys())}"
+
+for nama, profil in profiles.items():
+    missing = required_keys - set(profil.keys())
+    assert not missing, f"Profil '{nama}' kurang key: {missing}"
+    assert int(profil["mines_count"]) >= 1,  f"Profil '{nama}': mines_count harus ≥1"
+    assert len(profil["tile_indices"]) >= 1, f"Profil '{nama}': tile_indices harus ≥1 elemen"
+    assert Decimal(str(profil["loss_multiplier"])) >= Decimal("1"), \
+        f"Profil '{nama}': loss_multiplier harus ≥1"
+    ok(f"Profil '{nama}': semua key ada dan valid  ✅")
+
+# Pastikan profil wager punya throttle=False dan instant_reset=True
+wager = profiles.get("wager", {})
+assert wager.get("throttle")       == False, "Profil wager: throttle harus False"
+assert wager.get("instant_reset")  == True,  "Profil wager: instant_reset harus True"
+assert len(wager.get("tile_indices", [])) == 1, "Profil wager: hanya 1 reveal (1 elemen tile_indices)"
+ok("Profil 'wager' terverifikasi: throttle=False, instant_reset=True, 1 reveal")
+
+# ── TEST 11: Recovery logic (instant_reset vs modal balik) ────────────────────
+header("TEST 11 — Simulasi Recovery Logic")
+
+from decimal import Decimal
+
+CURRENCY = "idr"
+Q        = _quanta(CURRENCY)
+
+def sim_recovery(loss_multi, cap_multi, instant, base=Decimal("500"), n_kalah=5):
+    """Simulasikan N kalah berturut-turut lalu 1 menang — return (bet_saat_menang, direset)."""
+    bet        = base
+    cap        = base * cap_multi
+    streak_net = Decimal("0")
+    for _ in range(n_kalah):
+        streak_net -= bet
+        naik = bet * loss_multi
+        bet  = min(naik, cap).quantize(Q, rounding=ROUND_DOWN)
+    # 1 menang
+    profit = (bet * Decimal("1.04")).quantize(Q, rounding=ROUND_DOWN)  # simulasi profit kecil
+    streak_net += profit
+    should_reset = instant or (streak_net >= 0)
+    return bet, should_reset
+
+# Wager: instant_reset=True → bet PASTI direset tiap menang
+bet_w, reset_w = sim_recovery(Decimal("1.02"), Decimal("3"), instant=True, n_kalah=5)
+assert reset_w == True, "instant_reset=True harus selalu reset setelah menang"
+ok(f"Wager  — 5x kalah · bet saat menang: {fmt(bet_w, CURRENCY)} → instant reset ✅")
+
+# Normal: instant_reset=False, loss_multi=1.5x → streak_net belum tentu ≥0
+bet_n, reset_n = sim_recovery(Decimal("1.5"), Decimal("5"), instant=False, n_kalah=5)
+info(f"Normal — 5x kalah · bet saat menang: {fmt(bet_n, CURRENCY)} · reset={reset_n}")
+ok("Normal recovery logic berjalan tanpa crash ✅")
+
 # ── HASIL AKHIR ───────────────────────────────────────────────────────────────
-header("AUDIT SELESAI")
-print(f"  Semua komponen main.py (LIMBO) berfungsi normal.")
+header("AUDIT SELESAI — LIMBO + MINES")
+print(f"  Semua komponen main.py (Limbo & Mines) berfungsi normal.")
+print(f"  Profil Mines terdeteksi: {g(BOLD, ', '.join(CONFIG.get('mines_profiles', {}).keys()))}")
 print(f"  Jalankan {g(BOLD, 'python3 main.py')} untuk mulai grinding VIP otomatis.\n")

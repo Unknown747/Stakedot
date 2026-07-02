@@ -21,14 +21,27 @@
       "tile_indices": [0, 24],
       "loss_multiplier": "1.5",
       "cap_multiplier": "5",
-      "double_loss_rest_menit": 1
+      "double_loss_rest_menit": 1,
+      "throttle": true,
+      "instant_reset": false
     },
     "agresif": {
       "mines_count": 3,
       "tile_indices": [0, 24],
       "loss_multiplier": "1.3",
       "cap_multiplier": "6",
-      "double_loss_rest_menit": 2
+      "double_loss_rest_menit": 2,
+      "throttle": true,
+      "instant_reset": false
+    },
+    "wager": {
+      "mines_count": 1,
+      "tile_indices": [0],
+      "loss_multiplier": "1.02",
+      "cap_multiplier": "3",
+      "double_loss_rest_menit": 0,
+      "throttle": false,
+      "instant_reset": true
     }
   }
 }
