@@ -93,6 +93,16 @@ _DEFAULT_CONFIG = {
             "throttle":                     False,
             "instant_reset":                True,
         },
+        "aman": {
+            "mines_count":                  1,
+            "tile_indices":                 [0],
+            "loss_multiplier":              "1.1",
+            "cap_multiplier":               "2",
+            "double_loss_rest_menit":       3,
+            "throttle":                     True,
+            "instant_reset":                False,
+            "max_loss_override":            "15000",
+        },
     },
 }
 
@@ -1008,6 +1018,9 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     mines_double_loss_rest_menit = int(mines_profile.get("double_loss_rest_menit", 1))
     mines_throttle              = bool(mines_profile.get("throttle", True))
     mines_instant_reset         = bool(mines_profile.get("instant_reset", False))
+    # Profil boleh override stop-loss global — dipakai profil "aman" untuk batas lebih ketat
+    if "max_loss_override" in mines_profile:
+        max_loss_limit = Decimal(str(mines_profile["max_loss_override"]))
     win_chance_pct, multiplier_fair = hitung_odds_mines(25, mines_count, len(mines_fields))
 
     # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
@@ -1015,28 +1028,31 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
     print_vip_status(flag_progress)
 
     # ── Info konfigurasi sesi ─────────────────────────────────────────────────
-    # ── Estimasi wager/jam (pakai asumsi ~8 bet/mnt untuk Mines tanpa throttle) ─
-    _est_bpm    = 12 if not mines_throttle else 7
-    _est_wager_jam = _est_bpm * 60 * float(base_bet)
+    # Label keamanan per profil
+    _safety_labels = {
+        "aman":    g(GREEN,  "🛡️  AMAN       — modal diutamakan, lambat tapi terkontrol"),
+        "normal":  g(YELLOW, "⚖️  SEIMBANG  — keseimbangan antara keamanan & volume"),
+        "agresif": g(RED,    "⚡  AGRESIF   — volume tinggi, risiko saldo lebih besar"),
+        "wager":   g(CYAN,   "🚀  WAGER     — maksimum kecepatan, cocok modal besar"),
+    }
+    _safety_line = _safety_labels.get(profile, g(DIM, profile.upper()))
 
     print_section(f"STRATEGY VIP — MINES {mines_count} RANJAU  ({profile.upper()})")
+    print(f"  {_safety_line}")
+    print(f"  {g(CYAN, '─' * 52)}")
     print(f"  Game          : {g(BOLD, 'MINES')}  {g(DIM, f'({mines_count} ranjau dari 25 kotak · buka {len(mines_fields)} kotak fixed)')}")
     print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
     print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
-    print(f"  Profil        : {g(BOLD, profile.upper())}")
-    print(f"  Peluang Menang: {g(BOLD, f'≈{win_chance_pct}%')}  |  Multiplier fair: {g(BOLD, f'≈{multiplier_fair}x')} {g(DIM, '(real dari API sedikit lebih rendah, house edge ~1%)')}")
-    print(f"  Est. Wager/Jam: {g(CYAN, f'≈{idr_k(_est_wager_jam)} IDR')}  {g(DIM, f'(≈{_est_bpm} bet/mnt × {idr_k(base_bet)} IDR × 60)')}")
-    print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
-    print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
-    _reset_label = g(GREEN, "INSTANT (tiap menang)") if mines_instant_reset else g(YELLOW, "MODAL BALIK (streak_net ≥ 0)")
-    print(f"  Recovery      : {g(GREEN, 'AKTIF')}  "
-          f"{g(DIM, f'x{mines_loss_multiplier} tiap kalah · cap {fmt(mines_cap, currency)}')} · Reset: {_reset_label}")
+    print(f"  Peluang Menang: {g(BOLD, f'≈{win_chance_pct}%')}  |  Multiplier fair: {g(BOLD, f'≈{multiplier_fair}x')}")
+    print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat lalu lanjut"
+          + (g(GREEN, "  ← lebih ketat dari default") if "max_loss_override" in mines_profile else ""))
+    _reset_label = g(GREEN, "INSTANT (tiap menang)") if mines_instant_reset else g(YELLOW, "MODAL BALIK (tunggu balik modal dulu)")
+    naik_pct = (mines_loss_multiplier - Decimal("1")) * 100
+    print(f"  Recovery Bet  : {g(DIM, f'+{naik_pct:.0f}% tiap kalah')} · cap {g(YELLOW, fmt(mines_cap, currency))} · Reset: {_reset_label}")
     if mines_double_loss_rest_menit > 0:
-        print(f"  Double-Loss Rest : {g(YELLOW, f'{mines_double_loss_rest_menit} menit')} {g(DIM, 'jika kena ranjau 2x berturut-turut')}")
+        print(f"  Double-Loss   : istirahat {g(YELLOW, f'{mines_double_loss_rest_menit} menit')} jika kena ranjau 2x berturut-turut")
     else:
-        print(f"  Double-Loss Rest : {g(DIM, 'dinonaktifkan (profil wager)')}")
-    _throttle_label = g(DIM, "aktif (delay 1–2 dtk jika terlalu cepat)") if mines_throttle else g(GREEN, "NONAKTIF — full speed")
-    print(f"  Throttle      : {_throttle_label}")
+        print(f"  Double-Loss   : {g(DIM, 'tanpa jeda (profil wager)')}")
     print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
 
     # ── State tracker ────────────────────────────────────────────────────────
@@ -1499,37 +1515,41 @@ def main():
     mines_profile_terpilih = "normal"
 
     if game_terpilih == "mines":
-        _normal_profile  = CONFIG["mines_profiles"]["normal"]
-        _agresif_profile = CONFIG["mines_profiles"]["agresif"]
-        _wager_profile   = CONFIG["mines_profiles"].get("wager", {})
-        n_odds, n_mult = hitung_odds_mines(25, int(_normal_profile["mines_count"]),  len(_normal_profile["tile_indices"]))
-        a_odds, a_mult = hitung_odds_mines(25, int(_agresif_profile["mines_count"]), len(_agresif_profile["tile_indices"]))
-        w_odds, w_mult = hitung_odds_mines(25,
-            int(_wager_profile.get("mines_count", 1)),
-            len(_wager_profile.get("tile_indices", [0])))
-        n_count = _normal_profile["mines_count"]
-        a_count = _agresif_profile["mines_count"]
-        w_count = _wager_profile.get("mines_count", 1)
-        # estimasi wager/jam per profil
-        _bpm_n = 7;  _bpm_a = 7;  _bpm_w = 12
-        _base  = float(Decimal(str(CONFIG["base_bet"])))
-        _wj_n  = idr_k(_bpm_n * 60 * _base)
-        _wj_a  = idr_k(_bpm_a * 60 * _base)
-        _wj_w  = idr_k(_bpm_w * 60 * _base)
+        _pr   = CONFIG["mines_profiles"]
+        _pn   = _pr["normal"];   _pa = _pr["agresif"]
+        _pw   = _pr.get("wager", {}); _pam = _pr.get("aman", {})
+        _base = float(Decimal(str(CONFIG["base_bet"])))
+
+        def _info(p, bpm):
+            odds, mult = hitung_odds_mines(25, int(p.get("mines_count",1)), len(p.get("tile_indices",[0])))
+            cap  = _base * float(p.get("cap_multiplier", 5))
+            sloss = float(p.get("max_loss_override") or CONFIG["max_loss_limit"])
+            return odds, mult, idr_k(cap), idr_k(sloss), idr_k(bpm * 60 * _base)
+
+        odds_am, mult_am, cap_am, sl_am, wj_am = _info(_pam, 7)
+        odds_n,  mult_n,  cap_n,  sl_n,  wj_n  = _info(_pn,  7)
+        odds_a,  mult_a,  cap_a,  sl_a,  wj_a  = _info(_pa,  7)
+        odds_w,  mult_w,  cap_w,  sl_w,  wj_w  = _info(_pw,  12)
+
         print()
-        print(f"  {g(BOLD, '1')}. Normal   {g(DIM, f'({n_count} ranjau · ≈{n_odds}% · ≈{n_mult}x · recovery 1.5x · ≈{_wj_n} IDR/jam')}")
-        print(f"  {g(BOLD, '2')}. Agresif  {g(DIM, f'({a_count} ranjau · ≈{a_odds}% · ≈{a_mult}x · recovery 1.3x · ≈{_wj_a} IDR/jam')}")
-        print(f"  {g(BOLD, '3')}. {g(GREEN, 'Wager')}    {g(GREEN, f'({w_count} ranjau · ≈{w_odds}% · ≈{w_mult}x · no-throttle · instant-reset · ≈{_wj_w} IDR/jam')} ← push wager")
+        print(f"  {g(BOLD,'  #')}  {'Profil':<10} {'Win%':<8} {'Mult':<8} {'Cap bet':<12} {'Stop-loss':<12} {'Keamanan'}")
+        print(f"  {g(CYAN, '─'*72)}")
+        print(f"  {g(BOLD,'  1')}  {'Aman':<10} {g(GREEN,f'≈{odds_am}%'):<18} {g(GREEN,f'≈{mult_am}x'):<17} {g(GREEN,f'{cap_am} IDR'):<21} {g(GREEN,f'{sl_am} IDR'):<21} {g(GREEN,'🛡️  PALING AMAN ← rekomendasi')}")
+        print(f"  {g(BOLD,'  2')}  {'Normal':<10} {g(YELLOW,f'≈{odds_n}%'):<18} {g(YELLOW,f'≈{mult_n}x'):<17} {g(YELLOW,f'{cap_n} IDR'):<21} {g(YELLOW,f'{sl_n} IDR'):<21} {g(YELLOW,'⚖️  Seimbang')}")
+        print(f"  {g(BOLD,'  3')}  {'Agresif':<10} {g(RED,f'≈{odds_a}%'):<18} {g(RED,f'≈{mult_a}x'):<17} {g(RED,f'{cap_a} IDR'):<21} {g(RED,f'{sl_a} IDR'):<21} {g(RED,'⚡  Risiko tinggi')}")
+        print(f"  {g(BOLD,'  4')}  {'Wager':<10} {g(DIM,f'≈{odds_w}%'):<16} {g(DIM,f'≈{mult_w}x'):<15} {g(DIM,f'{cap_w} IDR'):<19} {g(DIM,f'{sl_w} IDR'):<19} {g(DIM,'🚀  Kecepatan, bukan keamanan')}")
         try:
-            sub_pilihan = input(g(YELLOW, "\n  Pilih profil Mines (1/2/3, default 1): ")).strip()
+            sub_pilihan = input(g(YELLOW, "\n  Pilih profil Mines (1/2/3/4, default 1): ")).strip()
         except (EOFError, KeyboardInterrupt):
             sub_pilihan = ""
         if sub_pilihan == "2":
-            mines_profile_terpilih = "agresif"
+            mines_profile_terpilih = "normal"
         elif sub_pilihan == "3":
+            mines_profile_terpilih = "agresif"
+        elif sub_pilihan == "4":
             mines_profile_terpilih = "wager"
         else:
-            mines_profile_terpilih = "normal"
+            mines_profile_terpilih = "aman"
 
     if game_terpilih == "mines":
         strategy_fn = lambda user, vps_mode, maks_ronde=None: jalankan_strategy_mines_vip(

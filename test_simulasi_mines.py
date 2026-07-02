@@ -54,7 +54,9 @@ mines_cap           = base_bet * Decimal(str(mines_profile["cap_multiplier"]))
 double_loss_menit   = int(mines_profile.get("double_loss_rest_menit", 1))
 throttle            = bool(mines_profile.get("throttle", True))
 instant_reset       = bool(mines_profile.get("instant_reset", False))
-max_loss_limit      = Decimal(str(CONFIG["max_loss_limit"]))
+max_loss_limit      = Decimal(str(
+    mines_profile.get("max_loss_override") or CONFIG["max_loss_limit"]
+))
 profit_lock_idr     = Decimal(str(CONFIG["profit_lock_idr"]))
 rest_setiap_volume  = Decimal(str(CONFIG["rest_setiap_volume"]))
 
@@ -251,7 +253,8 @@ def main():
     print(f"  Sesi total          : {len(sesi_log)}  {g(DIM, f'(stop-loss terpicu {stoploss_hits}x)')}")
     print(f"  Volume checkpoint   : {g(DIM, f'{checkpoint_hits}x  (setiap {fmt(rest_setiap_volume, currency)} wager)')}")
     print(f"  Profit-lock level   : {profit_lock_level}x")
-    print(f"  Loss streak terpanjang  : {g(YELLOW, str(max_loss_streak))}x")
+    _streak_note = g(DIM, "(loss berturut-turut sebelum reset)") if instant_reset else g(DIM, "(loss terakumulasi sebelum modal balik — normal untuk profil non-instant)")
+    print(f"  Loss / recovery cycle   : {g(YELLOW, str(max_loss_streak))}x  {_streak_note}")
     print(f"  Bet tertinggi dipasang  : {g(YELLOW, fmt(max_bet_reached, currency))}")
     kali_cap = g(RED, str(cap_hit_count)) if cap_hit_count else g(DIM, "0")
     print(f"  Bet kena cap ({idr_k(mines_cap)})  : {kali_cap}x")
