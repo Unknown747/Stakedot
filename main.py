@@ -60,6 +60,13 @@ _DEFAULT_CONFIG = {
     "max_consecutive_errors":          5,
     "restart_delay_detik":             60,
     "max_restart_attempts":            10,
+
+    # ── Strategi Mines (opsional, dipilih lewat menu saat start) ────────────
+    "mines_count":                     1,
+    "mines_tile_indices":              [0, 24],
+    "mines_loss_multiplier":           "1.5",
+    "mines_cap_multiplier":            "5",
+    "mines_double_loss_rest_menit":    1,
 }
 
 
@@ -175,6 +182,58 @@ mutation LimboBet(
 """
 
 
+MINES_BET_MUTATION = """
+mutation MinesBet(
+  $amount: Float!
+  $currency: CurrencyEnum!
+  $minesCount: Int!
+  $identifier: String!
+) {
+  minesBet(
+    amount: $amount
+    currency: $currency
+    minesCount: $minesCount
+    identifier: $identifier
+  ) {
+    id
+    amount
+    payout
+    payoutMultiplier
+    currency
+    state { ... on CasinoGameMines { mines minesCount } }
+  }
+}
+"""
+
+MINES_NEXT_MUTATION = """
+mutation MinesNext($fields: [Int!]) {
+  minesNext(fields: $fields) {
+    id
+    amount
+    payout
+    payoutMultiplier
+    currency
+    state { ... on CasinoGameMines { mines minesCount } }
+    user { balances { available { amount currency } } }
+  }
+}
+"""
+
+MINES_CASHOUT_MUTATION = """
+mutation {
+  minesCashout {
+    id
+    amount
+    payout
+    payoutMultiplier
+    currency
+    state { ... on CasinoGameMines { mines minesCount } }
+    user { balances { available { amount currency } } }
+  }
+}
+"""
+
+
 def gql(query, variables=None):
     """Kirim GraphQL request dan kembalikan data, atau raise Exception yang jelas."""
     payload = {"query": query}
@@ -275,6 +334,18 @@ def determine_win_limbo(roll_result: dict) -> bool:
     except (KeyError, TypeError, InvalidOperation):
         pass
     return False
+
+
+def mines_kena_ranjau(next_state: dict) -> bool:
+    """
+    Tentukan apakah reveal minesNext ini kena ranjau (ronde otomatis kalah).
+    Terkonfirmasi lewat tes langsung ke API: selama ronde masih aman,
+    state.mines tetap null. Begitu kena ranjau, ronde auto-selesai dan
+    state.mines langsung terisi (posisi semua ranjau terbuka).
+    """
+    if not next_state:
+        return False
+    return bool(next_state.get("mines"))
 
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
@@ -842,6 +913,420 @@ def jalankan_strategy_vip(user: dict, vps_mode: bool = False, maks_ronde: Option
         return False
 
 
+def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: Optional[int] = None):
+    """
+    Auto-bet Strategy VIP: MINES, 1 ranjau dari 25 kotak, buka 2 kotak fixed
+    lalu auto cash-out (≈92% menang, ≈1,08x per menang).
+
+    Catatan penting: posisi ranjau di-generate ulang secara acak & independen
+    tiap ronde lewat Provably Fair — kotak mana yang dibuka TIDAK mempengaruhi
+    peluang menang. Dua kotak fixed dipakai murni demi kesederhanaan kode.
+
+    Money management "Recovery 1.5x":
+      - Menang  → bet tetap flat (tidak naik), profit dicatat ke streak_net.
+      - Kalah   → bet naik 1.5x dari bet SEBELUMNYA (bukan compounding dari base),
+                  dengan cap keras agar tidak liar.
+      - Reset ke Base Bet baru terjadi setelah streak_net (net sejak reset
+        terakhir) balik ke ≥ 0 — bukan langsung di kemenangan pertama.
+      - Kalau kena ranjau 2x berturut-turut → istirahat singkat (mines_double_loss_rest_menit).
+
+    Returns True jika ingin lanjut sesi baru, False jika user Ctrl+C.
+    """
+
+    # ── Konfigurasi strategi (dari config.json) ──────────────────────────────
+    currency            = CONFIG["currency"]
+    base_bet            = Decimal(str(CONFIG["base_bet"]))
+    rest_setiap_volume  = Decimal(str(CONFIG["rest_setiap_volume"]))
+    rest_menit_volume   = int(CONFIG["rest_menit_volume"])
+    max_loss_limit      = Decimal(str(CONFIG["max_loss_limit"]))
+    topup_alert_idr     = Decimal(str(CONFIG["topup_alert_idr"]))
+
+    mines_count           = int(CONFIG["mines_count"])
+    mines_fields          = [int(x) for x in CONFIG["mines_tile_indices"]]
+    mines_loss_multiplier = Decimal(str(CONFIG["mines_loss_multiplier"]))
+    mines_cap             = base_bet * Decimal(str(CONFIG["mines_cap_multiplier"]))
+    mines_double_loss_rest_menit = int(CONFIG["mines_double_loss_rest_menit"])
+
+    # ── Tampilkan VIP status otomatis di atas CLI ─────────────────────────────
+    flag_progress = user.get("flagProgress") or {"flag": "none", "progress": 0}
+    print_vip_status(flag_progress)
+
+    # ── Info konfigurasi sesi ─────────────────────────────────────────────────
+    print_section("STRATEGY VIP — MINES 1 RANJAU  (RECOVERY 1.5x)")
+    print(f"  Game          : {g(BOLD, 'MINES')}  {g(DIM, f'({mines_count} ranjau dari 25 kotak · buka {len(mines_fields)} kotak fixed)')}")
+    print(f"  Currency      : {g(BOLD, 'IDR (Rupiah)')}")
+    print(f"  Base Bet      : {g(BOLD, fmt(base_bet, currency))}  {g(DIM, '← ubah di config.json')}")
+    print(f"  Peluang Menang: {g(BOLD, '≈92%')}  |  Multiplier per menang: {g(BOLD, '≈1,08x')} {g(DIM, '(dari API, bukan estimasi tetap)')}")
+    print(f"  Rest Checkpoint : setiap {g(CYAN, fmt(rest_setiap_volume, currency))} wager → {g(CYAN, str(rest_menit_volume) + ' menit')}")
+    print(f"  Stop-Loss     : {g(RED, fmt(max_loss_limit, currency))} loss → istirahat 5–10 mnt lalu lanjut")
+    print(f"  Recovery      : {g(GREEN, 'AKTIF')}  "
+          f"{g(DIM, f'x{mines_loss_multiplier} tiap kalah · cap {fmt(mines_cap, currency)} · reset saat modal balik')}")
+    print(f"  Double-Loss Rest : {g(YELLOW, f'{mines_double_loss_rest_menit} menit')} {g(DIM, 'jika kena ranjau 2x berturut-turut')}")
+    print(f"  Delay         : {g(DIM, 'tanpa delay — API Stake sebagai natural throttle')}")
+    print(g(DIM, "\n  Tekan Ctrl+C untuk berhenti kapan saja.\n"))
+
+    # ── State tracker ────────────────────────────────────────────────────────
+    total_volume         = Decimal("0")
+    total_loss           = Decimal("0")
+    wins                 = 0
+    losses               = 0
+    consecutive_err      = 0
+    ronde                = 0
+    stopped_by_user      = False
+    sudah_istirahat_internal = False
+    next_rest_checkpoint = rest_setiap_volume
+    next_million_notif   = Decimal("1000000")
+    _topup_notified      = False
+    sesi_mulai           = datetime.now()
+    take_profit_idr      = Decimal(str(CONFIG["take_profit_idr"]))
+    next_take_profit     = take_profit_idr
+
+    # ── Recovery 1.5x state ────────────────────────────────────────────────────
+    current_bet          = base_bet
+    streak_net           = Decimal("0")   # net profit/loss sejak reset terakhir
+    loss_streak          = 0
+    max_loss_streak_bet   = 0
+    max_bet_reached       = base_bet
+    cap_hit_count         = 0
+    hasil_2_terakhir      = []   # True=menang, False=kalah — deteksi kena ranjau 2x berturut
+
+    # ── Profit Lock & Balance Tracking ───────────────────────────────────────
+    saldo_awal           = None
+    profit_lock_idr      = Decimal(str(CONFIG["profit_lock_idr"]))
+    profit_lock_level    = 0
+
+    try:
+        while True:
+
+            # ── 1. Mulai ronde: minesBet ──────────────────────────────────────
+            identifier = str(uuid.uuid4())
+            bet_sebelum_ini = current_bet
+            try:
+                bet_result = gql(MINES_BET_MUTATION, {
+                    "amount":     float(current_bet),
+                    "currency":   currency,
+                    "minesCount": mines_count,
+                    "identifier": identifier,
+                })["minesBet"]
+                consecutive_err = 0
+            except PermissionError as e:
+                print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
+                break
+            except Exception as e:
+                consecutive_err += 1
+                print(g(RED, f"  ❌ Error API minesBet ({consecutive_err}/{MAX_CONSECUTIVE_ERRORS}): {e}"))
+                if consecutive_err >= MAX_CONSECUTIVE_ERRORS:
+                    print(g(RED, "  🛑 Terlalu banyak error berturut-turut. Sesi dihentikan."))
+                    break
+                time.sleep(2)
+                continue
+
+            # ── 2. Buka kotak: minesNext ──────────────────────────────────────
+            try:
+                next_result = gql(MINES_NEXT_MUTATION, {"fields": mines_fields})["minesNext"]
+                consecutive_err = 0
+            except PermissionError as e:
+                print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
+                break
+            except Exception as e:
+                consecutive_err += 1
+                print(g(RED, f"  ❌ Error API minesNext ({consecutive_err}/{MAX_CONSECUTIVE_ERRORS}): {e}"))
+                if consecutive_err >= MAX_CONSECUTIVE_ERRORS:
+                    print(g(RED, "  🛑 Terlalu banyak error berturut-turut. Sesi dihentikan."))
+                    break
+                time.sleep(2)
+                continue
+
+            ronde += 1
+            state = next_result.get("state") or {}
+            kena_ranjau = mines_kena_ranjau(state)
+
+            if kena_ranjau:
+                # ── Kalah: ronde otomatis selesai, tidak perlu cashout ─────────
+                amount     = current_bet
+                payout     = Decimal("0")
+                user_bals  = next_result.get("user", {}).get("balances", [])
+            else:
+                # ── 3. Aman: kunci profit dengan minesCashout ──────────────────
+                try:
+                    cashout_result = gql(MINES_CASHOUT_MUTATION)["minesCashout"]
+                    consecutive_err = 0
+                except PermissionError as e:
+                    print(g(RED, f"\n  ❌ Auth error, sesi dihentikan: {e}"))
+                    break
+                except Exception as e:
+                    consecutive_err += 1
+                    print(g(RED, f"  ❌ Error API minesCashout ({consecutive_err}/{MAX_CONSECUTIVE_ERRORS}): {e}"))
+                    if consecutive_err >= MAX_CONSECUTIVE_ERRORS:
+                        print(g(RED, "  🛑 Terlalu banyak error berturut-turut. Sesi dihentikan."))
+                        break
+                    time.sleep(2)
+                    continue
+                amount    = to_dec(cashout_result.get("amount", current_bet))
+                payout    = to_dec(cashout_result.get("payout", 0))
+                user_bals = cashout_result.get("user", {}).get("balances", [])
+
+            profit = (payout - amount).quantize(_quanta(currency), rounding=ROUND_DOWN)
+            won    = payout > amount
+
+            # ── Update statistik ──────────────────────────────────────────────
+            total_volume += current_bet
+            total_loss   -= profit
+
+            if won:
+                wins += 1
+            else:
+                losses += 1
+
+            # ── Recovery 1.5x: naik saat kalah, reset saat modal balik ────────
+            hasil_2_terakhir.append(won)
+            hasil_2_terakhir = hasil_2_terakhir[-2:]
+
+            if won:
+                streak_net += profit
+                if streak_net >= 0:
+                    if current_bet != base_bet:
+                        print(g(GREEN,
+                            f"  ✅ MODAL BALIK — reset ke Base Bet {fmt(base_bet, currency)} "
+                            f"(setelah {loss_streak}x kalah beruntun)"
+                        ))
+                    loss_streak = 0
+                    current_bet = base_bet
+                    streak_net  = Decimal("0")
+            else:
+                streak_net -= amount
+                loss_streak += 1
+                max_loss_streak_bet = max(max_loss_streak_bet, loss_streak)
+                naik = current_bet * mines_loss_multiplier
+                if naik >= mines_cap:
+                    current_bet = mines_cap
+                    cap_hit_count += 1
+                else:
+                    current_bet = naik.quantize(_quanta(currency), rounding=ROUND_DOWN)
+                max_bet_reached = max(max_bet_reached, current_bet)
+
+            # ── Ambil saldo terkini ───────────────────────────────────────────
+            bal_amount = next(
+                (b["available"]["amount"] for b in user_bals
+                 if b["available"]["currency"] == currency), None)
+            bal_dec = to_dec(bal_amount) if bal_amount is not None else None
+
+            if saldo_awal is None and bal_dec is not None:
+                saldo_awal = bal_dec
+
+            # ── Profit Lock ────────────────────────────────────────────────────
+            if saldo_awal is not None and bal_dec is not None:
+                surplus = bal_dec - saldo_awal
+                target_lock = profit_lock_idr * (profit_lock_level + 1)
+                if surplus >= target_lock:
+                    profit_lock_level += 1
+                    max_loss_limit = total_loss + profit_lock_idr
+                    print(g(GREEN,
+                        f"\n  🔒 PROFIT LOCK #{profit_lock_level}: "
+                        f"Surplus +{idr_k(surplus)} IDR — "
+                        f"Stop-loss dinaikkan ke {fmt(max_loss_limit, currency)}\n"
+                    ))
+
+            # ── Top-Up Alert ───────────────────────────────────────────────────
+            if (
+                bal_amount is not None
+                and not _topup_notified
+                and to_dec(bal_amount) < topup_alert_idr
+            ):
+                _topup_notified = True
+                print(g(RED,
+                    f"\n  ⚠️  SALDO HAMPIR HABIS! "
+                    f"Sisa: {fmt(bal_amount, currency)} "
+                    f"(batas: {fmt(topup_alert_idr, currency)}) — segera top up!\n"
+                ))
+
+            # ── Log setiap spin ────────────────────────────────────────────────
+            elapsed      = datetime.now() - sesi_mulai
+            elapsed_sek  = elapsed.total_seconds()
+            total_sec    = int(elapsed_sek)
+            jam, sisa    = divmod(total_sec, 3600)
+            mnt, dtk     = divmod(sisa, 60)
+            durasi_str   = f"{jam:02d}:{mnt:02d}:{dtk:02d}"
+            win_rate     = Decimal(wins) / Decimal(ronde) * 100
+            ikon         = g(GREEN, "✅") if won else g(RED, "❌")
+            loss_color   = RED if total_loss > 0 else DIM
+
+            elapsed_mnt  = elapsed_sek / 60
+            bet_per_mnt  = ronde / elapsed_mnt if elapsed_mnt >= 0.05 else 0
+            TARGET_WAGER = Decimal("1000000")
+            sisa_wager   = TARGET_WAGER - total_volume
+            if bet_per_mnt > 0 and sisa_wager > 0:
+                sisa_bet_eta = float(sisa_wager) / float(base_bet)
+                eta_sek      = (sisa_bet_eta / bet_per_mnt) * 60
+                if eta_sek >= 3600:
+                    eta_str = f"{eta_sek/3600:.1f}j"
+                elif eta_sek >= 60:
+                    eta_str = f"{eta_sek/60:.0f}m"
+                else:
+                    eta_str = f"{eta_sek:.0f}d"
+                speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  ETA 1Jt: {g(CYAN, eta_str)}"
+            elif sisa_wager <= 0:
+                speed_str = f"{g(YELLOW, f'{bet_per_mnt:.1f}')} b/m  │  {g(GREEN, '✅ 1Jt!')}"
+            else:
+                speed_str = f"-- b/m"
+
+            bal_k  = idr_k(bal_amount) if bal_amount is not None else "N/A"
+            loss_k = idr_k(total_loss)
+
+            bet_label = (g(YELLOW, f"x{(bet_sebelum_ini / base_bet):.2f} {idr_k(amount)}")
+                         if bet_sebelum_ini != base_bet
+                         else g(DIM, f"Bet {idr_k(amount)}"))
+
+            print(
+                f"  {ikon} #{ronde} · {bet_label} · "
+                f"Wgr {g(CYAN, idr_k(total_volume))} · "
+                f"Sld {g(CYAN, bal_k)} · "
+                f"Loss {g(loss_color, loss_k)} · "
+                f"W/L {g(GREEN, str(wins))}/{g(RED, str(losses))} "
+                f"{g(DIM, f'({win_rate:.1f}%)')}"
+            )
+            print(f"          {speed_str} · ⏱ {g(DIM, durasi_str)}")
+
+            # ── Kena ranjau 2x berturut-turut → istirahat singkat ─────────────
+            if hasil_2_terakhir == [False, False]:
+                print(g(RED,
+                    f"\n  💣 Kena ranjau 2x berturut-turut — istirahat "
+                    f"{mines_double_loss_rest_menit} menit untuk redakan emosi/modal..."
+                ))
+                rest_countdown(mines_double_loss_rest_menit)
+                hasil_2_terakhir = []
+                print(g(GREEN, "  ▶  Lanjut betting...\n"))
+
+            # ── Milestone setiap Rp1 juta wager ──────────────────────────────
+            if total_volume >= next_million_notif:
+                next_million_notif += Decimal("1000000")
+                print(g(CYAN, f"\n  🎯 Milestone {idr_k(total_volume)} IDR wager tercapai!\n"))
+
+            # ── Take-profit: jeda 5 dtk setiap kelipatan Rp 5.000 profit ──────
+            net_sesi = -total_loss
+            if net_sesi >= next_take_profit:
+                next_take_profit += take_profit_idr
+                print(g(GREEN,
+                    f"\n  💰 Profit +{idr_k(net_sesi)} IDR — jeda 5 detik...\n"
+                ))
+                time.sleep(5)
+
+            # ── Cek stop-loss ─────────────────────────────────────────────────
+            if total_loss >= max_loss_limit:
+                jeda = random.randint(5, 10)
+                print(g(RED,
+                    f"\n  🛑 Stop-loss {fmt(max_loss_limit, currency)} tercapai di bet #{ronde}. "
+                    f"Istirahat {jeda} menit untuk mengamankan modal..."
+                ))
+                rest_countdown(jeda)
+                sudah_istirahat_internal = True
+                break
+
+            # ── Cek checkpoint volume → istirahat 15 menit lalu lanjut ───────
+            if total_volume >= next_rest_checkpoint:
+                next_rest_checkpoint += rest_setiap_volume
+                print(g(CYAN,
+                    f"\n  ✅ Checkpoint {fmt(total_volume, currency)} wager! "
+                    f"W/L: {wins}/{losses} ({win_rate:.1f}%) | {bet_per_mnt:.1f} b/m"
+                    f"\n  Istirahat {rest_menit_volume} menit..."
+                ))
+                rest_countdown(rest_menit_volume)
+                print(g(GREEN, "  ▶  Lanjut betting...\n"))
+                continue
+
+            # ── Auto-throttle ────────────────────────────────────────────────
+            if bet_per_mnt > 50:
+                time.sleep(2)
+            elif bet_per_mnt > 30:
+                time.sleep(1)
+
+            # ── Batas ronde manual ────────────────────────────────────────────
+            if maks_ronde is not None and ronde >= maks_ronde:
+                print(g(CYAN, f"\n  🏁 Batas {maks_ronde} ronde tercapai — sesi test dihentikan.\n"))
+                break
+
+    except KeyboardInterrupt:
+        print(g(YELLOW, "\n\n  ⏹  Dihentikan oleh pengguna."))
+        stopped_by_user = True
+
+    # ── Ringkasan akhir sesi Mines ─────────────────────────────────────────────
+    total    = wins + losses
+    win_rate = (Decimal(wins) / Decimal(total) * 100) if total > 0 else Decimal("0")
+    net      = -total_loss
+
+    print_section("RINGKASAN STRATEGY MINES")
+    net_color = GREEN if net >= 0 else RED
+    net_sign  = "+" if net >= 0 else ""
+    print(f"  {'Ronde dimainkan':<18} {g(BOLD, str(total))}")
+    print(f"  {'Menang':<18} {g(GREEN, f'✅  {wins}')}")
+    print(f"  {'Kalah':<18} {g(RED, f'❌  {losses}')}")
+    print(f"  {'Win Rate':<18} {g(BOLD, f'{win_rate:.1f}%')}")
+    print(f"  {'Total Volume':<18} {g(CYAN, fmt(total_volume, currency))}")
+    print(f"  {g(CYAN, '─' * 52)}")
+    print(f"  {'Net Profit/Loss':<18} {g(net_color, BOLD + net_sign + fmt(net, currency) + R)}")
+    print(f"  {g(CYAN, '─' * 52)}")
+
+    if max_loss_streak_bet > 0:
+        print(f"\n  {g(CYAN, '◆')} {g(BOLD, 'STATISTIK RECOVERY 1.5x')}")
+        print(f"  {g(CYAN, '─' * 52)}")
+        print(f"  {'Loss Streak Terpanjang':<24} {g(YELLOW, str(max_loss_streak_bet))}x")
+        print(f"  {'Bet Tertinggi Dipasang':<24} {g(YELLOW, fmt(max_bet_reached, currency))}")
+        print(f"  {'Bet Kena Cap':<24} {g(RED if cap_hit_count > 0 else DIM, f'{cap_hit_count} kali')}")
+        print(f"  {g(CYAN, '─' * 52)}")
+    else:
+        print(g(DIM, "\n  🛡  Recovery 1.5x: tidak ada loss dalam sesi ini — bet tetap flat"))
+
+    # ── Refresh VIP progress dari API setelah sesi selesai ───────────────────
+    flag_before = flag_progress.get("flag") or "none"
+    prog_before = float(flag_progress.get("progress") or 0)
+    try:
+        fresh_user   = gql(USER_QUERY)["user"]
+        flag_after   = fresh_user.get("flagProgress") or {"flag": "none", "progress": 0}
+        flag_now     = flag_after.get("flag") or "none"
+        prog_now     = float(flag_after.get("progress") or 0)
+
+        print()
+        print(g(BOLD, "  📊 VIP Progress setelah sesi:"))
+        print_vip_status(flag_after)
+
+        if flag_now != flag_before:
+            print(g(GREEN, f"""
+  ╔══════════════════════════════════════════╗
+  ║  🎉  SELAMAT! LEVEL VIP NAIK!           ║
+  ║  {flag_before.upper():<10} → {flag_now.upper():<10}              ║
+  ╚══════════════════════════════════════════╝"""))
+        else:
+            gain = (prog_now - prog_before) * 100
+            print(g(DIM, f"  Progress naik: +{gain:.2f}% dalam sesi ini"))
+
+    except Exception:
+        pass
+
+    # ── Simpan log sesi ke CSV ────────────────────────────────────────────────
+    if total > 0:
+        simpan_log_csv({
+            "tanggal":          datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "ronde":            total,
+            "volume_idr":       str(total_volume),
+            "loss_idr":         str(total_loss),
+            "win_rate_pct":     f"{win_rate:.1f}",
+            "net_idr":          str(net),
+            "vip_flag":         flag_before,
+            "vip_progress_pct": f"{prog_before * 100:.2f}",
+        })
+        print(g(DIM, f"\n  📄 Log sesi disimpan ke {CSV_LOG}"))
+
+    if vps_mode:
+        return (not stopped_by_user), sudah_istirahat_internal
+
+    print()
+    try:
+        jawab = input(g(YELLOW, "  🔁 Mulai sesi baru? (y/n): ")).strip().lower()
+        return jawab in ("y", "ya", "yes", "1")
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
 # ─── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -925,6 +1410,18 @@ def main():
     else:
         print(g(DIM, "  (semua saldo kosong)"))
 
+    # ── Menu pilihan game: dipilih SEKALI di awal, lalu loop terus di game itu ─
+    print_section("PILIH GAME")
+    print(f"  {g(BOLD, '1')}. Limbo  {g(DIM, '(on-loss multiply +2%)')}")
+    print(f"  {g(BOLD, '2')}. Mines  {g(DIM, '(1 ranjau · recovery 1.5x)')}")
+    try:
+        pilihan = input(g(YELLOW, "\n  Pilih game (1/2, default 1): ")).strip()
+    except (EOFError, KeyboardInterrupt):
+        pilihan = ""
+    game_terpilih = "mines" if pilihan == "2" else "limbo"
+    strategy_fn   = jalankan_strategy_mines_vip if game_terpilih == "mines" else jalankan_strategy_vip
+    print(g(GREEN, f"\n  ▶  Game terpilih: {g(BOLD, game_terpilih.upper())}\n"))
+
     # ── VPS Auto-Run: jalan 24/7, otomatis tanpa input ───────────────────────
     print(g(GREEN, "  ✅ VPS Auto-Run aktif — sesi baru otomatis setelah setiap sesi selesai"))
     print(g(DIM,   "  Ctrl+C saat betting = keluar. Ctrl+C saat istirahat = skip jeda.\n"))
@@ -934,14 +1431,14 @@ def main():
     while True:
         clear_screen()  # Layar fresh setiap sesi baru — tidak numpuk log lama di terminal
         waktu_mulai = datetime.now().strftime("%d/%m %H:%M")
-        print(g(CYAN, f"\n  ╔═══ SESI #{sesi_ke}  ·  {waktu_mulai} ═══╗"))
+        print(g(CYAN, f"\n  ╔═══ SESI #{sesi_ke} ({game_terpilih.upper()})  ·  {waktu_mulai} ═══╗"))
 
         try:
             user = gql(USER_QUERY)["user"]
         except Exception as e:
             print(g(YELLOW, f"  ⚠️  Gagal refresh data user: {e} — lanjut dengan data sesi sebelumnya."))
 
-        lanjut, sudah_istirahat_internal = jalankan_strategy_vip(user=user, vps_mode=True)
+        lanjut, sudah_istirahat_internal = strategy_fn(user=user, vps_mode=True)
         if not lanjut:
             print(g(YELLOW, "\n  VPS Auto-Run dihentikan. Sampai jumpa! 👋"))
             break

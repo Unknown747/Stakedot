@@ -9,10 +9,18 @@ It was later replaced with a lighter "on-loss multiply" scheme: bet increases by
 **Why:** full martingale grows bet size too fast for a small bankroll under Stake's ~98%-win/2%-house-edge dice/limbo games; slow geometric growth keeps drawdown manageable while still recovering some loss.
 **How to apply:** when asked to add "recovery" or "loss recovery" to this bot, default to gentle percentage-based escalation with a hard cap, not doubling/martingale, unless the user explicitly insists otherwise — and if they do, flag the risk first.
 
-## CLI must auto-run with zero prompts (VPS-focused)
-The user runs this bot unattended on a VPS. All interactive menus (mode selection, y/n prompts) were removed; `python3 main.py` goes straight into the auto-bet loop with automatic session restarts and rest countdowns between sessions.
-**Why:** stated explicitly — "script fokus di vps," no one is at the keyboard to answer prompts.
-**How to apply:** any new feature must not introduce a blocking `input()` call in the main run path; use config constants instead.
+## CLI must auto-run with zero prompts (VPS-focused) — except a one-time startup choice
+The user runs this bot unattended on a VPS. Interactive menus were removed from the per-session loop; `python3 main.py` runs the auto-bet loop with automatic session restarts and rest countdowns between sessions, with no `input()` calls inside that loop.
+An explicit exception was later added: a single `input()` at the very start of `main()` (before the VPS loop begins) to choose which game strategy to run (e.g. "1. Limbo, 2. Mines"). This is a one-time choice, not a per-session prompt, so it doesn't break unattended 24/7 operation.
+**Why:** stated explicitly — "script fokus di vps," no one is at the keyboard to answer prompts *during* a running session; but choosing which strategy to run once at boot is acceptable and was explicitly requested.
+**How to apply:** any new feature must not introduce a blocking `input()` call inside the session loop; a single one-time selection prompt before the loop starts is fine. New strategies should be added as their own `jalankan_strategy_*_vip()` function selected via this startup menu, not as branches deep inside one shared function.
+
+## Mines was added as a second game alongside Limbo — different bet/round shape
+Mines uses a 3-call-per-round flow (`minesBet` → `minesNext(fields)` → `minesCashout`), not a single mutation like Limbo/Dice. Win/loss is determined by whether `state.mines` becomes non-null right after `minesNext` (non-null = hit a mine = loss, payout 0 stays; null = still safe → call `minesCashout` to lock the win).
+Tile-reveal pattern (which indices you pick) has **no effect on odds** — mine positions are freshly randomized per round via Provably Fair; picking 2 fixed indices is purely for code simplicity, not "safer tiles."
+Money management deliberately differs from Limbo's on-loss-multiply: on loss, bet multiplies ×1.5 from the *previous* bet (not compounding from base, not martingale ×2); bet only resets to base once the cumulative net loss streak (`streak_net`) recovers to ≥0, not on the first win after a loss. Two mine-hits in a row triggers a short (~1 min) in-session rest, separate from the stop-loss rest.
+**Why:** user explicitly designed and confirmed this recovery scheme distinct from Limbo's; also corrected a misconception that tile choice affects win probability — it's purely combinatorial (`C(24,2)/C(25,2)` for 1 mine, 2 reveals ≈ 92%).
+**How to apply:** keep Mines' `jalankan_strategy_mines_vip()` as its own function mirroring `jalankan_strategy_vip()`'s logging/CSV/stop-loss/checkpoint structure, but never merge its 3-call bet flow or ×1.5-recovery math into Limbo's single-call/percent-escalation logic.
 
 ## Game/API mutation choice is a real product decision, not just internal logic
 The bot has been switched between Stake's Dice game and Limbo game (different GraphQL mutations/fields: `diceRoll` with target+condition vs `limboBet` with `multiplierTarget`). Win-chance/multiplier math (`multiplier ≈ 99 / win_chance_pct`) is shared, but the mutation, win-determination function, and bet display all need to change together when switching games.

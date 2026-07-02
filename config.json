@@ -14,5 +14,10 @@
   "rest_menit_antar_sesi": 15,
   "max_consecutive_errors": 5,
   "restart_delay_detik": 60,
-  "max_restart_attempts": 10
+  "max_restart_attempts": 10,
+  "mines_count": 1,
+  "mines_tile_indices": [0, 24],
+  "mines_loss_multiplier": "1.5",
+  "mines_cap_multiplier": "5",
+  "mines_double_loss_rest_menit": 1
 }
