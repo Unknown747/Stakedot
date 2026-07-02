@@ -1179,15 +1179,24 @@ def jalankan_strategy_mines_vip(user: dict, vps_mode: bool = False, maks_ronde: 
                         "\n  ⚠️  Game Mines aktif terdeteksi (sisa crash/restart sebelumnya)."
                         "\n  🔄 Auto-cashout game lama..."
                     ))
-                    try:
-                        gql(MINES_CASHOUT_MUTATION)
-                        print(g(GREEN, "  ✅ Game lama berhasil di-cashout — retry ronde baru.\n"))
-                        consecutive_err = 0
-                    except Exception as ce:
-                        print(g(RED, f"  ❌ Gagal cashout game lama: {ce}"))
-                        consecutive_err += 1
-                        time.sleep(3)
-                    continue   # ← retry minesBet di iterasi berikutnya
+                    cashout_ok = False
+                    for _co_attempt in range(1, 6):   # retry cashout hingga 5x
+                        try:
+                            gql(MINES_CASHOUT_MUTATION)
+                            print(g(GREEN, f"  ✅ Game lama berhasil di-cashout (percobaan {_co_attempt}) — retry ronde baru.\n"))
+                            consecutive_err = 0
+                            cashout_ok = True
+                            break
+                        except Exception as ce:
+                            print(g(RED, f"  ❌ Cashout attempt {_co_attempt}/5 gagal: {ce}"))
+                            time.sleep(3)
+                    if not cashout_ok:
+                        # Cashout gagal total — tidak hitung sebagai error bet biasa,
+                        # tapi beri jeda lebih panjang sebelum retry agar API tidak
+                        # terus-menerus di-spam saat ada masalah sisi server.
+                        print(g(RED, "  ⚠️  Cashout game lama gagal setelah 5x — tunggu 15 detik lalu retry."))
+                        time.sleep(15)
+                    continue   # ← retry minesBet di iterasi berikutnya (TIDAK naik consecutive_err)
                 consecutive_err += 1
                 print(g(RED, f"  ❌ Error API minesBet ({consecutive_err}/{MAX_CONSECUTIVE_ERRORS}): {e}"))
                 if consecutive_err >= MAX_CONSECUTIVE_ERRORS:
